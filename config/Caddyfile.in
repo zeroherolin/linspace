@@ -1,0 +1,32 @@
+@@DOMAIN@@ {
+    root * /srv/linspace/current
+    header X-Content-Type-Options "nosniff"
+    import /etc/caddy/linspace.d/stash.caddy
+
+    @@SSH_ALIAS@@
+    @home path /
+    handle @home {
+        header Content-Type "text/html; charset=utf-8"
+        header Cache-Control "no-store"
+        file_server
+    }
+    @text path /mihomo/install /mihomo/sub /mihomo/restart /claude/config@@SSH_ROUTE@@
+    handle @text {
+        header Content-Type "text/plain; charset=utf-8"
+        header Cache-Control "no-store"
+        file_server
+    }
+    @geo path /mihomo/assets/geoip-@@GEO_SHA@@.dat
+    handle @geo {
+        header Content-Type "application/octet-stream"
+        header Cache-Control "public, max-age=31536000, immutable"
+        file_server
+    }
+    @claude path /claude/install
+    handle @claude {
+        redir https://claude.ai/install.sh 302
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

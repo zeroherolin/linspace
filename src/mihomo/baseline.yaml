@@ -1,0 +1,36 @@
+geodata-mode: true
+geox-url:
+  geoip: https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat
+  geosite: https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat
+mixed-port: 7890
+allow-lan: false
+bind-address: '127.0.0.1'
+mode: rule
+log-level: info
+external-controller-unix: /run/mihomo/control.sock
+proxy-providers:
+  my-sub:
+    type: file
+    path: ./proxies.yaml
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 300
+proxy-groups:
+  - name: PROXY
+    type: select
+    use: [my-sub]
+  - name: AUTO
+    type: url-test
+    use: [my-sub]
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY
+dns:
+  enable: false
+tun:
+  enable: false
+profile:
+  store-selected: true

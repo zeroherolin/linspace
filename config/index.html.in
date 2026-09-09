@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@@SITE_NAME@@</title>
+<style>
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, sans-serif; color: #333; }
+main { flex: 1; display: flex; align-items: center; justify-content: center; }
+footer { padding: 1em; text-align: center; font-size: 0.875em; }
+footer a { color: #666; text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>@@SITE_NAME@@</h1>
+</main>
+<footer>
+  <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">@@ICP_NUMBER@@</a>
+</footer>
+</body>
+</html>

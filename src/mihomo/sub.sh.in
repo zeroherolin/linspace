@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+/usr/bin/python3 - "$@" <<'LINSPACE_SUB_PY'
+@@include:src/mihomo/sub.py@@
+LINSPACE_SUB_PY

@@ -1,0 +1,7 @@
+{
+  "domain": "",
+  "site_name": "",
+  "icp_number": "",
+  "ssh_public_key_file": "",
+  "claude_settings_file": "config/claude/settings.json"
+}

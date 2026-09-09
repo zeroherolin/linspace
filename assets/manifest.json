@@ -1,0 +1,8 @@
+{
+  "geoip": {
+    "path": "assets/mihomo/geoip-2bb7877d772191daa2cac46cf4c530b19fab76b5f870bc431d5767bc933a34d4.dat.gz",
+    "sha256": "2bb7877d772191daa2cac46cf4c530b19fab76b5f870bc431d5767bc933a34d4",
+    "size": 17951725,
+    "compressed_sha256": "59c0dd1a87ac1fec3133c19e23c2c17c995ac594fa28df3d8bac6beba5ab500a"
+  }
+}

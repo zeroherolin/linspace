@@ -1,0 +1,13 @@
+[Unit]
+Description=Socket for stashd (linspace stash)
+
+[Socket]
+ListenStream=/run/stashd/stashd.sock
+SocketUser=stash
+SocketGroup=caddy
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
