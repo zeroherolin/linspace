@@ -1,2 +1,0 @@
-# Python 3.11+ includes tomllib. Older interpreters use the compatible parser.
-tomli>=1.2.2; python_version < "3.11"

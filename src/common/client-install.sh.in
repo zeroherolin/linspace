@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Install @@CLIENT_NAME@@, with a verified download fallback.
+main() (
+    set -Eeuo pipefail
+    umask 077
+    CLIENT=@@CLIENT@@
+    OFFICIAL=@@OFFICIAL_INSTALL@@
+    fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+    [[ $# == 0 ]] || { printf 'Usage: curl -fsSL https://@@DOMAIN@@/%s/install | bash\n' "$CLIENT"; exit 1; }
+    [[ -z ${SUDO_USER:-} || ${SUDO_USER:-} == root ]] || fail 'Run as the account that will use this client, without sudo.'
+    for command in curl tar gzip mktemp diff; do command -v "$command" >/dev/null || fail "Missing prerequisite: $command"; done
+    command -v sha256sum >/dev/null || command -v shasum >/dev/null || fail 'A SHA256 tool is required.'
+    LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
+    [[ $LINSPACE_DOWNLOAD_CACHE == /* && ! -L $LINSPACE_DOWNLOAD_CACHE ]] || fail 'Use an absolute, private cache directory.'
+    mkdir -p -- "$LINSPACE_DOWNLOAD_CACHE"
+    [[ -O $LINSPACE_DOWNLOAD_CACHE ]] || fail 'The cache must belong to the current account.'
+    chmod 700 "$LINSPACE_DOWNLOAD_CACHE"
+    WORK=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.install.XXXXXX")
+    trap 'status=$?; trap - EXIT; rm -rf -- "$WORK"; exit "$status"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+@@include:src/common/download.sh.in@@
+    platform=$(linspace_platform) || exit 1
+    # A separate process group lets the time limit also stop child downloads.
+    bounded() (
+        set +e
+        budget=$1; shift
+        set -m
+        "$@" </dev/null & worker=$!
+        (sleep "$budget"; kill -TERM -- "-$worker" 2>/dev/null; sleep 2; kill -KILL -- "-$worker" 2>/dev/null) & watchdog=$!
+        set +m
+        trap 'kill -KILL -- "-$worker" "-$watchdog" 2>/dev/null; wait "$worker" "$watchdog" 2>/dev/null' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        wait "$worker"; result=$?
+        # Clean up any surviving downloader even after the installer's shell exits.
+        kill -KILL -- "-$worker" 2>/dev/null
+        kill -TERM -- "-$watchdog" 2>/dev/null
+        wait "$watchdog" 2>/dev/null
+        exit "$result"
+    )
+    try_official() {
+        local mode first
+        for mode in environment direct; do
+            [[ $mode != direct ]] || linspace_proxy_set || break
+            if ! linspace_fetch "$OFFICIAL" "$WORK/official.sh" 1048576 "$mode" 20; then continue; fi
+            IFS= read -r first < "$WORK/official.sh" || [[ -n $first ]] || continue
+            if [[ $first != '#!'*sh* ]] || ! bash -n "$WORK/official.sh" 2>/dev/null; then
+                printf 'The official endpoint returned an invalid installer; using the verified fallback.\n' >&2
+                return 1
+            fi
+            if [[ $mode == direct ]]; then
+                bounded 120 env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY CODEX_NON_INTERACTIVE=1 bash "$WORK/official.sh"
+            else
+                bounded 120 env CODEX_NON_INTERACTIVE=1 bash "$WORK/official.sh"
+            fi
+            return $?
+        done
+        return 1
+    }
+    printf 'Trying the official %s installer (up to 120 seconds).\n' "$CLIENT"
+    if try_official; then exit 0; fi
+    printf 'Official installation did not finish successfully; installing the pinned complete package.\n' >&2
+    linspace_asset_info "$CLIENT-$platform" 2>/dev/null || fail "Official installation failed and no hosted fallback is available for $platform. Check the network/proxy and retry."
+    version=$ASSET_VERSION
+    digest=$ASSET_SHA
+    linspace_asset "$CLIENT-$platform" "$WORK/client.tar.gz" || fail 'All download attempts failed. Rerun this command to reuse verified downloads.'
+    # Extract into a fresh directory; never extract over user configuration or an existing install.
+    mkdir "$WORK/package"
+    tar -xzf "$WORK/client.tar.gz" -C "$WORK/package"
+    if [[ $CLIENT == codex ]]; then
+        cat > "$WORK/package/LICENSE.Codex" <<'CODEX_LICENSE'
+@@include:vendor/notices/LICENSE.Codex@@
+CODEX_LICENSE
+        cat > "$WORK/package/NOTICE.Codex" <<'CODEX_NOTICE'
+@@include:vendor/notices/NOTICE.Codex@@
+CODEX_NOTICE
+        cat > "$WORK/package/LICENSE.bubblewrap" <<'BWRAP_LICENSE'
+@@include:vendor/notices/LICENSE.bubblewrap@@
+BWRAP_LICENSE
+        for file in bin/codex bin/codex-code-mode-host codex-path/rg; do
+            [[ -f $WORK/package/$file && ! -L $WORK/package/$file ]] || fail "The package is incomplete: $file"
+            chmod 755 "$WORK/package/$file"
+        done
+        if [[ $platform == linux-* ]]; then
+            [[ -f $WORK/package/codex-resources/bwrap ]] || fail 'The Codex sandbox helper is missing.'
+            chmod 755 "$WORK/package/codex-resources/bwrap"
+        fi
+        executable=bin/codex
+        ln -s bin/codex "$WORK/package/codex"
+    else
+        executable=package/claude
+        [[ -f $WORK/package/$executable && ! -L $WORK/package/$executable ]] || fail 'The Claude native executable is missing.'
+        chmod 755 "$WORK/package/$executable"
+    fi
+    bounded 15 "$WORK/package/$executable" --version > "$WORK/version" || fail 'This package cannot run on this system.'
+    [[ $(cat "$WORK/version") == *"$version"* ]] || fail 'The installed version did not match the pinned package.'
+    data=${XDG_DATA_HOME:-$HOME/.local/share}/linspace/$CLIENT
+    bin=$HOME/.local/bin
+    [[ $CLIENT != codex || -z ${CODEX_INSTALL_DIR:-} ]] || bin=$CODEX_INSTALL_DIR
+    [[ $data == /* && $bin == /* && ! -L $data && ! -L $bin ]] || fail 'Use absolute installation paths without symbolic-link directories.'
+    mkdir -p -- "$data" "$bin"
+    [[ -O $data && -O $bin ]] || fail 'Installation directories must belong to the current account.'
+    release=$data/$version-$platform-$digest
+    [[ ! -L $release ]] || fail 'The version directory must not be a symbolic link.'
+    if [[ -e $release ]] && ! diff -qr "$WORK/package" "$release" >/dev/null; then
+        release=$(mktemp -d "$data/$version-$platform-repair.XXXXXX")
+        rmdir "$release"
+    fi
+    # Keep a complete immutable version directory. A failed download never replaces the visible command.
+    if [[ ! -e $release ]]; then
+        stage=$(mktemp -d "$data/.stage.XXXXXX")
+        cp -R "$WORK/package/." "$stage/" || { rm -rf -- "$stage"; fail 'Could not stage the installation.'; }
+        mv -- "$stage" "$release"
+    fi
+    [[ ! -L $release && -x $release/$executable ]] || fail 'The existing version directory is invalid.'
+    link=$bin/$CLIENT
+    [[ ! -d $link && ( ! -e $link || -f $link || -L $link ) ]] || fail 'The command path is not a file.'
+    if [[ -e $link || -L $link ]]; then
+        backup=$(mktemp -d "$data/.previous.XXXXXX")
+        cp -P -- "$link" "$backup/$CLIENT"
+        printf 'Previous launcher: %s\n' "$backup/$CLIENT"
+    fi
+    ln -s "$release/$executable" "$WORK/launcher"
+    # Stage the symlink on the target filesystem before an atomic rename.
+    pending=$(mktemp -d "$bin/.linspace.XXXXXX")
+    mv -- "$WORK/launcher" "$pending/$CLIENT"
+    mv -f -- "$pending/$CLIENT" "$link"
+    rmdir "$pending"
+    cat "$WORK/version"
+    printf 'Installed %s at %s\n' "$CLIENT" "$link"
+    case ":$PATH:" in *":$bin:"*) ;; *) printf 'For this terminal, run: export PATH="%s:$PATH"\n' "$bin" ;; esac
+    printf 'Rerun the same installation command to update. Your settings and credentials are preserved.\n'
+)
+main "$@"

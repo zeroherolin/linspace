@@ -16,7 +16,7 @@ def replace_base_url(data, url):
         try:
             import tomli as tomllib
         except ImportError:
-            raise ValueError('-u needs Python 3.11+, or Python 3.9/3.10 with tomli (Debian/Ubuntu: python3-tomli).') from None
+            raise ValueError('The bundled TOML parser is unavailable. Download the current auth script again.') from None
     try:
         parsed_url = urlsplit(url)
         parsed_url.port

@@ -16,7 +16,7 @@ Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE
 Without -t, read the token privately from the terminal.
 Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
 Existing credentials are backed up before replacement. Run without sudo.
-Without -u, config.toml is untouched. -u needs Python with tomllib or tomli.
+Without -u, config.toml is untouched. Missing Python is downloaded with a verified fallback.
 USAGE
 }
 
@@ -55,8 +55,15 @@ main() {
     [[ ! -e $auth_file || -f $auth_file ]] || fail 'auth.json must be a regular file.'
 
     if [[ $url_given == true ]]; then
-        command -v python3 >/dev/null || fail '-u requires Python 3.9+ with tomllib or tomli.'
-        python3 - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
+        LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
+        linspace_python 9 || fail 'Could not prepare Python for -u.'
+        "$LINSPACE_PYTHON" -I - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
+import atexit, base64, pathlib, sys, tempfile
+_vendor = tempfile.TemporaryDirectory(prefix='linspace-tomli-')
+atexit.register(_vendor.cleanup)
+_vendor_path = pathlib.Path(_vendor.name) / 'vendor.zip'
+_vendor_path.write_bytes(base64.b64decode('@@TOMLI_ZIP@@'))
+sys.path.insert(0, str(_vendor_path))
 @@include:src/codex/provider_auth.py@@
 provider_auth_main()
 LINSPACE_CODEX_PROVIDER_PY
@@ -91,6 +98,8 @@ LINSPACE_CODEX_PROVIDER_PY
     printf 'Saved API credentials to %s (mode 600).\n' "$auth_file"
     printf 'Token validity is checked when Codex connects to your configured provider.\n'
 }
+
+@@include:src/common/download.sh.in@@
 
 # Parse the complete function before acting on a streamed download.
 main "$@"

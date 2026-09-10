@@ -1,6 +1,6 @@
 # Claude Code
 
-Run as the account that will use Claude Code on supported Linux or macOS. You need Bash, curl and access to the site and Anthropic's services.
+Run as the account that will use Claude Code on supported Linux or macOS. You need Bash, curl, tar, gzip and a SHA256 tool. Model access still requires Anthropic or your configured provider.
 
 ## Install and update
 
@@ -9,7 +9,7 @@ curl -fsSL https://your-domain.cn/claude/install | bash
 claude --version
 ```
 
-The site redirects to the [official installer](https://code.claude.com/docs/en/setup). Follow its PATH instructions. Use `claude update` to update or `claude doctor` to diagnose an installation.
+The script tries the [official installer](https://code.claude.com/docs/en/setup), then a verified fallback if installation fails. Follow its PATH instructions. Rerun the same command to update; use `claude doctor` to diagnose an installation.
 
 ## Configure
 

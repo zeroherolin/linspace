@@ -1,7 +1,5 @@
 geodata-mode: true
-geox-url:
-  geoip: https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat
-  geosite: https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat
+geo-auto-update: false
 mixed-port: 7890
 allow-lan: false
 bind-address: '127.0.0.1'

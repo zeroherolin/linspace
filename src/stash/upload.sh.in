@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Usage: curl -fsSL https://@@DOMAIN@@/stash/upload__CHANNEL__ | bash -s -- FILE
+main() (
 set -Eeuo pipefail
-command -v python3 >/dev/null || { echo 'Python 3.9+ is required.' >&2; exit 1; }
-python3 - "$@" <<'LINSPACE_STASH_PY'
+@@include:src/common/download.sh.in@@
+LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
+linspace_python 9 || { echo 'Could not prepare Python.' >&2; exit 1; }
+"$LINSPACE_PYTHON" -I - "$@" <<'LINSPACE_STASH_PY'
 @@include:src/stash/client.py@@
 main('https://@@DOMAIN@@', 'upload__CHANNEL__')
 LINSPACE_STASH_PY
+)
+main "$@"

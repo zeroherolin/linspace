@@ -2,7 +2,7 @@
 
 ## Local checks
 
-Use Python 3.9+, Bash, curl, OpenSSL and OpenSSH 8.2+. Python below 3.11 also needs `tomli`, installed from `requirements.txt` in a virtual environment or as `python3-tomli` on Debian/Ubuntu.
+Use Python 3.9+, Bash, curl, OpenSSL and OpenSSH 8.2+. Pinned Python parsers are bundled; no pip installation is required.
 
 ```sh
 ./linspace check
@@ -31,7 +31,7 @@ Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@
 
 ## Versions and release validation
 
-Mihomo is pinned to v1.19.27. Update engine checksums and runtime expectations in install/process/sub together. Review the provenance and checksums in `assets/manifest.json` when changing GeoIP. Claude and Codex installers redirect to their official upstream scripts.
+Mihomo is pinned to v1.19.27; update its runtime expectations together. `config/downloads.json` is the only interface to download hosting. Import a verified export from the resource project before deploying. Keep bundled parser code and notices in `vendor/` consistent with their manifest.
 
 Update the Codex catalog through its [refresh procedure](config/codex/README.md#refresh-and-validate). Normal builds need neither Codex nor network access.
 

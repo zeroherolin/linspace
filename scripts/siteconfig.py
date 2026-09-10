@@ -9,13 +9,8 @@ import subprocess
 from pathlib import Path
 import codex_catalog
 
-try:
-    import tomllib
-except ImportError:  # Python 3.9/3.10 on older deployment hosts.
-    try:
-        import tomli as tomllib
-    except ImportError:
-        tomllib = None
+from vendor import toml_parser
+tomllib = toml_parser()
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = ('domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'stash_public_key_files')
@@ -117,7 +112,7 @@ def load(path, internal=False, root=ROOT):
     p = Path(config['codex_config_file']).expanduser()
     codex = (p if p.is_absolute() else root / p).read_bytes()
     if tomllib is None:
-        raise ValueError('TOML validation needs Python 3.11+ or tomli: install python3-tomli on Debian/Ubuntu, or requirements.txt in a Python virtual environment')
+        raise ValueError('The bundled TOML parser is unavailable; verify the checkout')
     try:
         codex_settings = tomllib.loads(codex.decode('utf-8'))
     except (UnicodeError, tomllib.TOMLDecodeError) as exc:

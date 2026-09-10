@@ -103,8 +103,7 @@ def main():
         else:
             config, key, _, _ = siteconfig.load(args.config, args.internal_test)
             if args.command == 'verify':
-                asset = json.loads((ROOT / 'assets/manifest.json').read_text())['geoip']
-                verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name'], 'geoip_sha256': asset['sha256']}, args.local)
+                verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name']}, args.local)
             else:
                 paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload0', 'stash/download0', 'stash/clear']
                 if key:

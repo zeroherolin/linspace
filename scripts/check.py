@@ -18,9 +18,9 @@ def main():
         for path in (ROOT / directory).rglob('*.py'):
             ast.parse(path.read_text(), filename=str(path))
     for path in [ROOT / 'linspace', *ROOT.rglob('*.sh')]:
-        if 'dist' not in path.parts and 'local' not in path.parts:
+        if 'dist' not in path.parts and 'local' not in path.parts and '@@include:' not in path.read_text():
             subprocess.run(['bash', '-n', path], check=True)
-    for page in [*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'assets').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')]:
+    for page in [*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'vendor').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')]:
         for link in re.findall(r'\[[^\]]*\]\(([^)]+)\)', page.read_text()):
             link = link.split('#', 1)[0]
             if link and not re.match(r'[a-z]+:', link):
@@ -32,7 +32,7 @@ def main():
         config.write_text(json.dumps({'domain': 'check.example.test', 'site_name': 'Build check', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
         release = build.build(config, root / 'dist', internal=True)
         deploy.checked_release(release)
-        for path in [*list((release / 'site/mihomo').glob('*')), *list((release / 'site/stash').glob('upload*')), release / 'site/stash/clear', release / 'site/codex/auth']:
+        for path in [*list((release / 'site/mihomo').glob('*')), *list((release / 'site/stash').glob('upload*')), release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
             if path.is_file():
                 subprocess.run(['bash', '-n', path], check=True)
                 if path.parent.name == 'stash':

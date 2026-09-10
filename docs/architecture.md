@@ -10,6 +10,7 @@
 | `scripts/build.py` | Render files and create checksummed bundles |
 | `scripts/deploy.py` | Back up, activate, verify and recover |
 | Caddy | HTTPS, route allowlists, caching and body limits |
+| `src/common/` | Shared installation and download fallback |
 | `src/mihomo/` | Client proxy tools |
 | `src/codex/` | Local API credential setup |
 | `src/stash/` | Signed upload clients and the text writer |
@@ -23,10 +24,9 @@ Claude JSON is serialized during build; Codex TOML preserves formatting. Catalog
 | `/` | Site title and filing footer |
 | `/ssh/<ssh_public_key_name>` | Selected public key; default name `key.pub` |
 | `/mihomo/install`, `/mihomo/sub`, `/mihomo/restart` | Client scripts |
-| `/mihomo/assets/geoip-<sha256>.dat` | Pinned GeoIP; immutable caching |
-| `/claude/install` | 302 to `https://claude.ai/install.sh` |
+| `/claude/install` | Official installer with verified download fallback |
 | `/claude/config` | Public JSON |
-| `/codex/install` | 302 to `https://chatgpt.com/codex/install.sh` |
+| `/codex/install` | Official installer with verified download fallback |
 | `/codex/config`, `/codex/models_1m` | Public TOML and model catalog |
 | `/codex/auth` | Script that writes credentials on the client |
 | `/stash/upload0`–`7` | Upload scripts |
@@ -36,7 +36,7 @@ Claude JSON is serialized during build; Codex TOML preserves formatting. Catalog
 | `/stash/challenge` | GET issues a signing challenge; HEAD checks availability |
 | `/stash/clear` | GET serves the script; signed POST clears all channels |
 
-Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Installer redirects do not mirror or pin upstream installers.
+Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Installer scripts use official sources first and a pinned, verified download fallback. The build embeds `config/downloads.json`; hosting providers require no installer-code changes.
 
 ## State and isolation
 
@@ -44,6 +44,6 @@ Caddy serves immutable files through `/srv/linspace/current` and channel data fr
 
 Uploads replace files atomically. Clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry; connection and verification capacity are bounded.
 
-The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. Optional `-u` validates and updates the selected provider's existing `base_url` in `config.toml`, preserving other settings and attempting rollback on a write failure. It makes no network requests and sends no credentials to the site.
+The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. Optional `-u` validates and updates the selected provider's existing `base_url` in `config.toml`, preserving other settings and attempting rollback on a write failure. It sends no credentials to the site or model provider.
 
 Deployment uses a lock, immutable releases and a switched symlink. Backups cover managed configuration, authorization, code, units and the previous pointer. Channel data is separate. [Paths and recovery](deployment.md).

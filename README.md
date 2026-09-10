@@ -29,13 +29,13 @@ Use the exact hostname you want to serve. The project does not create DNS record
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y git python3 python3-tomli curl ca-certificates openssh-client
+sudo apt-get install -y git python3 curl ca-certificates openssh-client
 cd ~
 git clone https://github.com/zeroherolin/linspace.git
 cd linspace
 ```
 
-Python 3.9+ is required. `tomli` supplies TOML parsing below Python 3.11. The server needs no Node.js, Docker or database.
+Python 3.9+ is required; the TOML parser is bundled. The server needs no Node.js, Docker or database.
 
 ### 3. Configure
 
@@ -68,7 +68,7 @@ Client settings are public. Review the presets and exclude credentials: Claude d
 sudo ./linspace deploy
 ```
 
-Deployment installs missing runtime packages and Caddy, obtains HTTPS certificates, backs up managed state and activates the site. Existing channel data is preserved. [Existing Caddy and recovery](docs/deployment.md).
+Deployment installs Caddy when needed, obtains HTTPS certificates, backs up managed state and activates the site. Existing channel data is preserved. [Existing Caddy and recovery](docs/deployment.md).
 
 ### 5. Verify
 
@@ -89,6 +89,8 @@ Verification checks public HTTPS without changing channel data. If it fails, use
 | Codex | [Install, configure and authenticate](docs/usage/codex.md) |
 | Stash | [Upload, read and clear text](docs/usage/stash.md) |
 
+Linux installers automatically use verified fallback downloads when upstream access fails.
+
 The [quick start](docs/README.md) puts the common commands on one page. Stash reads are public; writes use SSH signatures and normally need no `-i` or token.
 
 ## Update
@@ -101,4 +103,4 @@ sudo ./linspace deploy
 
 Resolve local source edits before pulling. Keep ignored `local/` files. After reconfiguring, redeploy; clients must download updated settings themselves.
 
-[Operations](docs/operations.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [Testing](docs/testing.md) · [MIT license](LICENSE) · [GeoIP provenance](assets/README.md)
+[Operations](docs/operations.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [Testing](docs/testing.md) · [MIT license](LICENSE) · [Bundled dependencies](vendor/README.md)

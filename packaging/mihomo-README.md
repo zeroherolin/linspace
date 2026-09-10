@@ -8,11 +8,11 @@ From the extracted bundle directory:
 
 ```sh
 sha256sum --check SHA256SUMS
-bash mihomo/install --geoip-file mihomo/assets/geoip-*.dat
+bash mihomo/install
 bash mihomo/sub "$HOME/private-proxies.yaml"
 ```
 
-The bundle contains one GeoIP file. This avoids fetching it from `https://@@DOMAIN@@`; the pinned v1.19.27 engine still needs GitHub or a checksum-verified mirror.
+The bundle contains scripts. Engine and GeoIP downloads use verified sources with automatic fallback. An existing trusted GeoIP file can be supplied with `--geoip-file /path/to/GeoIP.dat`.
 
 Successful import starts the proxy on `127.0.0.1:7890`. To use it in the current terminal:
 
@@ -27,4 +27,4 @@ export https_proxy=http://127.0.0.1:7890
 bash mihomo/restart
 ```
 
-Run after reboot or process exit. There is no autostart or supervisor. Keep private subscriptions outside the bundle and public web root. This bundle contains only Mihomo tools and data.
+Run after reboot or process exit. There is no autostart or supervisor. Keep private subscriptions outside the bundle and public web root.

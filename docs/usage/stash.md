@@ -2,7 +2,7 @@
 
 Stash has eight channels, **0–7**. Each holds one UTF-8 file up to **1 MiB**, without NUL bytes. Upload replaces the previous file. Reads are public, with no history or expiry; keep secrets out.
 
-Clients need Bash, curl, Python 3.9+ and OpenSSH 8.2+ on Linux or macOS. Upload and clear require an authorized private key or agent.
+Clients need Bash, curl and OpenSSH 8.2+ on Linux or macOS. Missing Python is downloaded automatically on supported platforms. Runtime downloads need tar, gzip and a SHA256 tool. Upload and clear require an authorized private key or agent.
 
 ## Upload
 

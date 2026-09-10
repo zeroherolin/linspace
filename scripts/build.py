@@ -10,6 +10,7 @@ import tarfile
 from pathlib import Path
 import siteconfig
 import codex_catalog
+import downloads
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDE = re.compile(r'^@@include:([^\n]+)@@\n', re.M)
@@ -20,6 +21,8 @@ def digest(data):
 
 
 def render(relative, values, stack=()):
+    if not stack and 'ASSET_CASES' not in values:
+        values = {**downloads.values(), **values}
     path = (ROOT / relative).resolve()
     if not path.is_relative_to(ROOT) or path in stack:
         raise ValueError(f'Unsafe or cyclic include: {relative}')
@@ -72,15 +75,10 @@ def build(config_path, output=None, internal=False):
         shutil.rmtree(output)
     release = output / 'linspace-site'
     release.mkdir(parents=True)
-    asset = json.loads((ROOT / 'assets/manifest.json').read_text())['geoip']
-    compressed = (ROOT / asset['path']).read_bytes()
-    if digest(compressed) != asset['compressed_sha256']:
-        raise ValueError('Compressed GeoIP checksum mismatch')
-    geo = gzip.decompress(compressed)
-    if digest(geo) != asset['sha256'] or len(geo) != asset['size']:
-        raise ValueError('GeoIP snapshot checksum mismatch')
     key_name = config['ssh_public_key_name']
-    values = {'DOMAIN': config['domain'], 'GEO_SHA': asset['sha256'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else ''}
+    values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', **downloads.values()}
+    for client, title, url in [('claude', 'Claude Code', 'https://claude.ai/install.sh'), ('codex', 'Codex', 'https://chatgpt.com/codex/install.sh')]:
+        write(release, f'site/{client}/install', render('src/common/client-install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title, 'OFFICIAL_INSTALL': url}))
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
         'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/codex/auth': 'src/codex/auth.sh.in',
@@ -100,14 +98,13 @@ def build(config_path, output=None, internal=False):
     write(release, 'site/stash/keys', '\n'.join(stash_keys) + ('\n' if stash_keys else ''))
     write(release, 'config/stash.allowed_signers', ''.join(f'stash namespaces="linspace-stash@{config["domain"]}" {key}\n' for key in stash_keys))
     write(release, 'site/index.html', siteconfig.page(config))
-    write(release, f"site/mihomo/assets/geoip-{asset['sha256']}.dat", geo)
     for name in ('deploy.py', 'verify.py'):
         write(release, name, (ROOT / 'scripts' / name).read_bytes())
-    write(release, 'install-caddy.sh', (ROOT / 'scripts/install-caddy.sh').read_bytes())
+    write(release, 'install-caddy.sh', render('scripts/install-caddy.sh.in', values))
     write(release, 'README.md', (ROOT / 'packaging/site-README.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
-    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal, 'geoip_sha256': asset['sha256']}, ensure_ascii=False, indent=2) + '\n')
+    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')

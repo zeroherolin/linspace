@@ -1,0 +1,16 @@
+{
+  "pyyaml": {
+    "version": "6.0.2",
+    "file": "pyyaml.zip",
+    "sha256": "19e43aed4aaa948e61d8fd31a2fe285010f92c35be8e71b4a5cebaccf12e0421",
+    "size": 41937,
+    "license": "MIT"
+  },
+  "tomli": {
+    "version": "2.2.1",
+    "file": "tomli.zip",
+    "sha256": "e7084e920ba4bd1b6cd557b77399f527c4a3a2da75d9e03c2162ddbb3a5ed051",
+    "size": 9678,
+    "license": "MIT"
+  }
+}

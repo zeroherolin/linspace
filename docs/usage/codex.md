@@ -1,6 +1,6 @@
 # Codex
 
-Run as the account that will use Codex on supported Linux or macOS. You need Bash, curl and access to the site and your model provider.
+Run as the account that will use Codex on supported Linux or macOS. You need Bash, curl, tar, gzip and a SHA256 tool. Model access still requires your provider.
 
 ## Install and update
 
@@ -9,7 +9,7 @@ curl -fsSL https://your-domain.cn/codex/install | bash
 codex --version
 ```
 
-The site redirects to the [official installer](https://learn.chatgpt.com/docs/codex/cli). Follow its PATH instructions. Run the same command again to update.
+The script tries the [official installer](https://learn.chatgpt.com/docs/codex/cli), then a verified fallback if installation fails. Follow its PATH instructions. Run the same command again to update.
 
 ## Configure
 
@@ -56,7 +56,7 @@ curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' 
 
 `-u` replaces the existing `base_url` for the provider selected by `model_provider` in `config.toml`. Comments and other providers are preserved. **Omit `-u` to leave `config.toml` untouched.** Download the configuration first; invalid or unsupported configuration stops the update before credentials are changed.
 
-Only `-u` needs Python 3.9+ with a TOML parser: Python 3.11+ includes it; Python 3.9/3.10 needs `tomli` (`python3-tomli` on Debian/Ubuntu). Changed files are backed up before replacement.
+The TOML parser is bundled. Missing Python is downloaded automatically on supported platforms. Changed files are backed up before replacement.
 
 The script writes `auth.json` under `CODEX_HOME`, or `~/.codex` by default, with mode `600`. It backs up existing credentials and writes only on the client. It does not contact the provider to validate the token. The preset uses file-based credential storage; custom keyring or provider settings may use other credentials.
 

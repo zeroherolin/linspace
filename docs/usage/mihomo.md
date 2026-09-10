@@ -8,7 +8,7 @@ Run as **root on Debian/Ubuntu**, x86_64 or ARM64. Replace `your-domain.cn` with
 curl -fsSL https://your-domain.cn/mihomo/install | bash
 ```
 
-This installs pinned Mihomo **v1.19.27**, GeoIP and missing dependencies. Downloads try GitHub and checksum-verified mirrors. A fresh install starts nothing until you import a subscription.
+This installs pinned Mihomo **v1.19.27**, GeoIP and its Python runtime when needed. Failed downloads automatically use a verified download fallback. A fresh install starts nothing until you import a subscription.
 
 Rerunning install preserves a recognized linspace configuration. Back up and remove an unmanaged or supervised Mihomo installation before switching to this installer.
 
@@ -53,7 +53,7 @@ Restart preserves the configuration and node selection. There is no autostart, w
 ## Diagnose
 
 ```sh
-python3 /usr/local/lib/linspace-mihomo/process.py status
+/usr/local/lib/linspace-mihomo/python /usr/local/lib/linspace-mihomo/process.py status
 tail -n 50 /var/log/mihomo/mihomo.log
 ```
 
@@ -63,4 +63,4 @@ Configuration is in `/etc/mihomo/config.yaml`; nodes, GeoIP and backups are unde
 
 If site downloads are unavailable, ask the operator for `linspace-mihomo-target.tar.gz` and its trusted SHA256. Verify the archive, extract it to an empty directory and follow its [README](../../packaging/mihomo-README.md).
 
-The bundle includes GeoIP. The engine still needs access to GitHub or a mirror. Keep private subscriptions outside the bundle.
+The bundle contains the client scripts. Engine and GeoIP downloads use the same automatic fallback. Keep private subscriptions outside the bundle.

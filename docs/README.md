@@ -4,6 +4,8 @@ Replace `your-domain.cn` with your site's domain. Run commands one at a time and
 
 These examples use the default configuration directories. Downloads replace existing settings; see [configuration files](usage/client-config.md) for backups and custom directories.
 
+Installers use verified fallback downloads when upstream access fails. Linux is the primary client platform; macOS supports Intel and Apple Silicon where upstream binaries are compatible. Linux and macOS need their standard shell tools, curl, tar, gzip and a SHA256 tool; OpenSSH is required for SSH/Stash.
+
 ## 1. SSH access
 
 Run as the account that should accept SSH logins. Replace `team.pub` with the site's published key filename.
@@ -87,13 +89,13 @@ To save the token and change the relay URL together:
 curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' -u 'https://relay.example/v1'
 ```
 
-Without `-u`, the existing URL is unchanged. The option requires the downloaded configuration and Python with a TOML parser; see the [Codex guide](usage/codex.md#authenticate).
+Without `-u`, the existing URL is unchanged. The option requires the downloaded configuration; see the [Codex guide](usage/codex.md#authenticate).
 
 Run `codex` from your project. For ChatGPT account sign-in, use `codex login` instead of the token script. [Codex guide](usage/codex.md).
 
 ## 5. Stash
 
-Uploads and clear require an authorized private key or agent. Reads are public. Clients need Python 3.9+ and OpenSSH 8.2+ in addition to Bash and curl.
+Uploads and clear require an authorized private key or agent. Reads are public. Clients need OpenSSH 8.2+ in addition to Bash and curl. Missing Python is downloaded automatically on supported platforms.
 
 ```sh
 curl -fsSL https://your-domain.cn/stash/upload | bash -s -- 'file.txt'

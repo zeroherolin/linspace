@@ -38,15 +38,16 @@ class BuildTests(unittest.TestCase):
             self.assertEqual((release / 'site/ssh/team.pub').read_bytes(), Path(str(key) + '.pub').read_bytes())
             self.assertFalse((release / 'site/ssh/key.pub').exists())
             for path in release.rglob('*'):
-                if path.is_file() and path.suffix != '.dat':
+                if path.is_file() and path.suffix not in ('.dat', '.gz'):
                     self.assertNotIn('@@DOMAIN@@', path.read_text())
             self.assertIn('https://custom.example.test', (release / 'site/mihomo/install').read_text())
             self.assertIn('https://custom.example.test/stash', (release / 'site/stash/upload7').read_text())
             self.assertIn('Site &lt;test&gt;', (release / 'site/index.html').read_text())
             self.assertIn('custom.example.test {', (release / 'config/Caddyfile').read_text())
             self.assertEqual(set(re.findall(r'/ssh/[a-zA-Z0-9._-]+', (release / 'config/Caddyfile').read_text())), {'/ssh/team.pub'})
-            self.assertIn('@codex path /codex/install', (release / 'config/Caddyfile').read_text())
-            self.assertIn('redir https://chatgpt.com/codex/install.sh 302', (release / 'config/Caddyfile').read_text())
+            self.assertIn('/codex/install', (release / 'config/Caddyfile').read_text())
+            self.assertTrue((release / 'site/codex/install').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertNotIn('redir https://chatgpt.com', (release / 'config/Caddyfile').read_text())
             self.assertIn('/codex/config', (release / 'config/Caddyfile').read_text())
             self.assertEqual((release / 'site/codex/config').read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
             self.assertEqual(build.siteconfig.tomllib.loads((release / 'site/codex/config').read_text())['model_catalog_json'], 'models-1m.json')
@@ -104,5 +105,5 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(json.loads((release / 'site/claude/config').read_text()), {'language': 'English'})
             self.assertEqual((release / 'site/codex/config').read_bytes(), codex.read_bytes())
             for path in release.rglob('*'):
-                if path.is_file() and path.suffix != '.dat':
+                if path.is_file() and path.suffix not in ('.dat', '.gz'):
                     self.assertNotIn('private-location-', path.read_text())

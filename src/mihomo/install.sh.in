@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Install a pinned mihomo version for ordinary background execution.
+# Usage: curl -fsSL https://@@DOMAIN@@/mihomo/install | bash
 main() (
     set -Eeuo pipefail
     export PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -9,6 +10,7 @@ main() (
     BIN=/usr/local/bin/mihomo
     LIB=/usr/local/lib/linspace-mihomo
     GEO_SHA=@@GEO_SHA@@
+    LINSPACE_DOWNLOAD_CACHE=/var/cache/linspace-mihomo
     GEO_FILE=''
     fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
     while [[ $# -gt 0 ]]; do
@@ -28,20 +30,16 @@ main() (
     fi
     [[ ! -L "$ROOT" && ! -L "$LIB" && ! -L /etc/mihomo ]] || fail 'Managed directories must not be symbolic links.'
     case "$(uname -m)" in
-        x86_64) ARCH=amd64-v1; ENGINE_SHA=b922f6fc90a232b9265db1cc9c5206fee8479dc2047bb037ebf09bc3c9e3b352 ;;
-        aarch64|arm64) ARCH=arm64; ENGINE_SHA=87db0c6660a9557a901b5750f997967e71d8c0af07ea1d1dd4d04c28da7f7e6f ;;
+        x86_64) ARCH=amd64-v1 ;;
+        aarch64|arm64) ARCH=arm64 ;;
         *) fail 'Only x86_64 and ARM64 are supported.' ;;
     esac
-    unset http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY SAFE_PATHS
     while IFS= read -r key; do unset "$key"; done < <(compgen -v CLASH_)
-    missing=()
-    for package in curl ca-certificates gzip coreutils util-linux python3 python3-yaml passwd; do
-        [[ $(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true) == 'install ok installed' ]] || missing+=("$package")
+    for command in curl gzip tar sha256sum flock setpriv useradd getent timeout realpath; do
+        command -v "$command" >/dev/null || fail "Missing base-system prerequisite: $command"
     done
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        apt-get update </dev/null
-        DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-upgrade --no-install-recommends "${missing[@]}" </dev/null
-    fi
+@@include:src/common/download.sh.in@@
+    linspace_python 9 || fail 'Could not prepare Python.'
     [[ -d /run/lock ]] || install -d -m 755 /run/lock
     exec 9>/run/lock/linspace-mihomo.lock
     flock -n 9 || fail 'Another installation or update is running.'
@@ -57,7 +55,7 @@ main() (
     WAS_ACTIVE=0
     TARGETS=() EXISTED=()
     if [[ -f "$LIB/process.py" ]]; then
-        /usr/bin/python3 "$LIB/process.py" is-active && WAS_ACTIVE=1
+        "$LINSPACE_PYTHON" -I "$LIB/process.py" is-active && WAS_ACTIVE=1
     fi
     atomic_install() {
         local source=$1 target=$2 mode=$3 temporary
@@ -79,7 +77,7 @@ main() (
         trap - EXIT
         set +e
         if [[ $CHANGED -eq 1 ]]; then
-            [[ ! -f "$LIB/process.py" ]] || /usr/bin/python3 "$LIB/process.py" stop || ok=0
+            [[ ! -f "$LIB/process.py" ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" stop || ok=0
             for ((i=${#TARGETS[@]}-1; i>=0; i--)); do
                 if [[ ${EXISTED[i]} == 1 ]]; then
                     temporary=$(mktemp "$(dirname "${TARGETS[i]}")/.restore.XXXXXX")
@@ -88,7 +86,7 @@ main() (
                     rm -f "${TARGETS[i]}" || ok=0
                 fi
             done
-            [[ $WAS_ACTIVE -eq 0 ]] || /usr/bin/python3 "$LIB/process.py" start || ok=0
+            [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start || ok=0
             [[ $ok -eq 0 ]] || printf 'Installation failed. Previous files and process state were restored.\n' >&2
         fi
         if [[ $ok -eq 1 ]]; then rm -rf "$WORK"; else printf 'Rollback incomplete. Backup retained at %s\n' "$WORK" >&2; fi
@@ -97,31 +95,19 @@ main() (
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    fetch() { curl -q -fsSL --globoff --proto '=https' --proto-redir '=https' --noproxy '*' --proxy '' --connect-timeout 15 --max-time 180 --speed-limit 8192 --speed-time 30 --retry 2 "$@"; }
     verify() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
-    # Download a GitHub release asset: direct first, then through public mirrors.
-    # Every candidate is checksum-verified, so a mirror can only fail, never tamper.
-    fetch_github() {
-        local url=$1 target=$2 expected=$3 base
-        for base in '' 'https://gh-proxy.com/' 'https://ghfast.top/'; do
-            rm -f "$target"
-            if fetch "$base$url" -o "$target" && verify "$expected" "$target"; then
-                [[ -z "$base" ]] || printf 'Downloaded through mirror %s\n' "$base"
-                return 0
-            fi
-            printf 'Download from %s failed or did not match the checksum. Trying next source.\n' "${base:-github.com}" >&2
-        done
-        fail 'Could not download the mihomo engine from GitHub or any mirror.'
-    }
-    ASSET="mihomo-linux-$ARCH-v1.19.27.gz"
-    fetch_github "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/$ASSET" "$WORK/mihomo.gz" "$ENGINE_SHA"
+    linspace_asset_info "mihomo-$ARCH"
+    ENGINE_RAW_SHA=$ASSET_RAW_SHA
+    linspace_asset "mihomo-$ARCH" "$WORK/mihomo.gz" || fail 'Engine download failed.'
     gzip -dc "$WORK/mihomo.gz" > "$WORK/mihomo"
+    verify "$ENGINE_RAW_SHA" "$WORK/mihomo" || fail 'The extracted engine checksum does not match.'
     chmod 755 "$WORK/mihomo"
     "$WORK/mihomo" -v
     if [[ -n "$GEO_FILE" ]]; then
         cp -- "$GEO_FILE" "$WORK/GeoIP.dat"
     else
-        fetch "https://@@DOMAIN@@/mihomo/assets/geoip-$GEO_SHA.dat" -o "$WORK/GeoIP.dat"
+        linspace_asset geoip "$WORK/GeoIP.dat.gz" || fail 'GeoIP download failed.'
+        gzip -dc "$WORK/GeoIP.dat.gz" > "$WORK/GeoIP.dat"
     fi
     verify "$GEO_SHA" "$WORK/GeoIP.dat" || fail 'The GeoIP checksum does not match the pinned snapshot.'
     cat > "$WORK/baseline.yaml" <<'BASELINE_YAML'
@@ -133,6 +119,19 @@ PROCESS_PY
     cat > "$WORK/run-mihomo.sh" <<'RUNNER_SH'
 @@include:src/mihomo/run-mihomo.sh@@
 RUNNER_SH
+    cat > "$WORK/LICENSE.mihomo" <<'MIHOMO_LICENSE'
+@@include:vendor/notices/LICENSE.mihomo@@
+MIHOMO_LICENSE
+    cat > "$WORK/SOURCE.mihomo" <<'MIHOMO_SOURCE'
+Unmodified Mihomo v1.19.27, licensed under GPL-3.0.
+Upstream: https://github.com/MetaCubeX/mihomo/tree/5184081ac327394d9e15fa5d5f9f4a61e723fd94
+Corresponding source and notices: @@ASSET_SOURCE@@
+MIHOMO_SOURCE
+    "$LINSPACE_PYTHON" -I - "$WORK/vendor.zip" <<'VENDOR_PY'
+import base64, pathlib, sys
+pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode('@@PYYAML_ZIP@@'))
+VENDOR_PY
+    printf '#!/bin/sh\nexec %s -I "$@"\n' "$LINSPACE_PYTHON" > "$WORK/python"
     printf '%s  %s\n' "$GEO_SHA" "$ROOT/GeoIP.dat" > "$WORK/geoip.sha256"
     printf 'linspace-mihomo-background-v1\n' > "$WORK/managed"
     if [[ -f "$CONFIG" ]]; then
@@ -142,7 +141,7 @@ RUNNER_SH
         timeout 120 "$WORK/mihomo" -t -d "$WORK/check" > "$WORK/check.log" 2>&1 || fail 'The existing configuration is invalid.'
     fi
     CHANGED=1
-    [[ $WAS_ACTIVE -eq 0 ]] || /usr/bin/python3 "$LIB/process.py" stop
+    [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" stop
     publish "$BIN" "$WORK/mihomo" 755
     publish "$ROOT/GeoIP.dat" "$WORK/GeoIP.dat" 600
     chown mihomo:mihomo "$ROOT/GeoIP.dat"
@@ -151,7 +150,11 @@ RUNNER_SH
     publish "$LIB/run-mihomo.sh" "$WORK/run-mihomo.sh" 755
     publish "$LIB/managed" "$WORK/managed" 644
     publish "$LIB/process.py" "$WORK/process.py" 644
-    [[ $WAS_ACTIVE -eq 0 ]] || /usr/bin/python3 "$LIB/process.py" start
+    publish "$LIB/vendor.zip" "$WORK/vendor.zip" 644
+    publish "$LIB/python" "$WORK/python" 755
+    publish "$LIB/LICENSE.mihomo" "$WORK/LICENSE.mihomo" 644
+    publish "$LIB/SOURCE.mihomo" "$WORK/SOURCE.mihomo" 644
+    [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start
     CHANGED=0
     printf 'Installed mihomo v1.19.27 for ordinary background execution.\n'
     printf 'Run sub to import a subscription; use restart after exit or reboot. No service or autostart is installed.\n'

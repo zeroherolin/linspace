@@ -220,14 +220,13 @@ def apply(release, args):
         raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
     fresh_caddy = shutil.which('caddy') is None
     # Syntax and checksums are checked before installing packages or changing services.
-    for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('upload*')) + [release / 'site/stash/clear', release / 'site/codex/auth']:
+    for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('upload*')) + [release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
         if script.is_file():
             run(['bash', '-n', script])
     compile((release / 'service/stashd.py').read_text(), 'stashd.py', 'exec')
-    run(['bash', release / 'install-caddy.sh'])
     if shutil.which('curl') is None or shutil.which('ssh-keygen') is None:
-        run(['apt-get', 'update'])
-        run(['apt-get', 'install', '-y', '--no-install-recommends', 'curl', 'ca-certificates', 'openssh-client'])
+        raise ValueError('Install the documented curl and OpenSSH prerequisites before deployment.')
+    run(['bash', release / 'install-caddy.sh'])
     version = run(['caddy', 'version'], text=True, capture_output=True).stdout
     match = re.search(r'v(\d+)\.(\d+)\.(\d+)', version)
     if not match or tuple(map(int, match.groups())) < (2, 10, 0):

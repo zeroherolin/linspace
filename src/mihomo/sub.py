@@ -43,7 +43,7 @@ def fail(message):
 
 
 def control(action, check=True):
-    return subprocess.run(['/usr/bin/python3', str(PROCESS), action], check=check,
+    return subprocess.run([sys.executable, '-I', str(PROCESS), action], check=check,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
@@ -63,9 +63,25 @@ def api(path, method='GET', body=None, *, sock=None, timeout=5):
     return json.loads(result.stdout) if result.stdout else None
 
 
+def process_sockets(pid):
+    # Match the daemon's filesystem credentials when /proc inspection is restricted.
+    # This needs no ptrace capability and keeps exact socket/PID verification.
+    uid, gid = os.geteuid(), os.getegid()
+    account = pwd.getpwnam('mihomo')
+    try:
+        if uid == 0:
+            os.setegid(account.pw_gid)
+            os.seteuid(account.pw_uid)
+        return {os.readlink(p) for p in Path(f'/proc/{pid}/fd').iterdir()}
+    finally:
+        if uid == 0:
+            os.seteuid(uid)
+            os.setegid(gid)
+
+
 def owns_socket(pid, path):
     try:
-        sockets = {os.readlink(p) for p in Path(f'/proc/{pid}/fd').iterdir()}
+        sockets = process_sockets(pid)
         return any(len(f) > 7 and f[7] == str(path) and f'socket:[{f[6]}]' in sockets
                    for f in (line.split() for line in Path(f'/proc/{pid}/net/unix').read_text().splitlines()[1:]))
     except OSError:
@@ -74,7 +90,7 @@ def owns_socket(pid, path):
 
 def owned_ports(pid):
     try:
-        sockets = {os.readlink(p) for p in Path(f'/proc/{pid}/fd').iterdir()}
+        sockets = process_sockets(pid)
         found = set()
         for protocol in ('tcp', 'tcp6', 'udp', 'udp6'):
             for row in Path(f'/proc/{pid}/net/{protocol}').read_text().splitlines()[1:]:

@@ -1,0 +1,128 @@
+# Verified downloads shared by the generated installers (Bash 3.2+).
+linspace_checksum() {
+    [[ -f $1 && ! -L $1 && $(wc -c < "$1") -eq $3 ]] || return 1
+    local digest
+    if command -v sha256sum >/dev/null 2>&1; then
+        digest=$(sha256sum "$1") || return 1
+    else
+        digest=$(shasum -a 256 "$1") || return 1
+    fi
+    [[ ${digest%% *} == "$2" ]]
+}
+
+linspace_proxy_set() {
+    [[ -n ${https_proxy:-}${HTTPS_PROXY:-}${all_proxy:-}${ALL_PROXY:-} ]]
+}
+
+linspace_fetch() {
+    local url=$1 target=$2 limit=$3 mode=$4 budget=$5
+    local proxy=(--noproxy "${no_proxy:-${NO_PROXY:-}}") progress=(-sS)
+    [[ $mode != direct ]] || proxy=(--noproxy '*' --proxy '')
+    [[ ! -t 2 ]] || progress=(--progress-bar --show-error)
+    curl -q -fL "${progress[@]}" --globoff --proto '=https' --proto-redir '=https' \
+        "${proxy[@]}" --connect-timeout 5 --max-time "$budget" --retry 0 \
+        --speed-limit 131072 --speed-time 10 --max-filesize "$limit" "$url" -o "$target"
+}
+
+linspace_file() (
+    set -uo pipefail
+    sha=$1 size=$2 url=$3 first=$4 budget=$5
+    cache=${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}
+    [[ ! -L $cache ]] || return 1
+    umask 077
+    mkdir -p -- "$cache" || return 1
+    [[ -O $cache ]] || return 1
+    chmod 700 "$cache" || return 1
+    cached=$cache/$sha
+    linspace_checksum "$cached" "$sha" "$size" && return 0
+    [[ ! -e $cached || -f $cached ]] || return 1
+    temporary=$(mktemp "$cache/.download.XXXXXX") || return 1
+    trap 'rm -f -- "$temporary"' EXIT
+    modes=("$first")
+    if linspace_proxy_set; then
+        if [[ $first == direct ]]; then modes+=(environment); else modes+=(direct); fi
+    fi
+    for mode in "${modes[@]}"; do
+        printf 'Downloading (%s): %s\n' "$mode" "$url" >&2
+        if linspace_fetch "$url" "$temporary" "$size" "$mode" "$budget" && linspace_checksum "$temporary" "$sha" "$size"; then
+            mv -f -- "$temporary" "$cached" || return 1
+            return 0
+        fi
+        : > "$temporary" || return 1
+    done
+    return 1
+)
+
+linspace_asset_info() {
+    case "$1" in
+@@ASSET_CASES@@
+        *) printf 'Unknown installation asset: %s\n' "$1" >&2; return 1 ;;
+    esac
+}
+
+linspace_asset() (
+    set -uo pipefail
+    name=$1 target=$2
+    linspace_asset_info "$name" || return 1
+    cache=${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}
+    [[ $cache == /* && ! -L $cache ]] || return 1
+    umask 077
+    mkdir -p -- "$cache" || return 1
+    [[ -O $cache ]] || return 1
+    chmod 700 "$cache" || return 1
+    if linspace_checksum "$cache/$ASSET_SHA" "$ASSET_SHA" "$ASSET_SIZE"; then
+        cp -- "$cache/$ASSET_SHA" "$target"
+        return $?
+    fi
+    # Each source is bounded. A configured but broken proxy is retried directly.
+    if [[ -n $ASSET_URL ]] && linspace_file "$ASSET_SHA" "$ASSET_SIZE" "$ASSET_URL" environment 90; then
+        cp -- "$cache/$ASSET_SHA" "$target"
+        return $?
+    fi
+    printf 'Using download fallback for %s.\n' "$name" >&2
+    joined=$(mktemp "$cache/.assemble.XXXXXX") || return 1
+    trap 'rm -f -- "$joined"' EXIT
+    for ((index=0; index<${#ASSET_PART_URLS[@]}; index++)); do
+        sha=${ASSET_PART_SHAS[index]}
+        linspace_file "$sha" "${ASSET_PART_SIZES[index]}" "${ASSET_PART_URLS[index]}" direct 600 || return 1
+        cat -- "$cache/$sha" >> "$joined" || return 1
+    done
+    linspace_checksum "$joined" "$ASSET_SHA" "$ASSET_SIZE" || { echo 'Asset checksum mismatch.' >&2; return 1; }
+    mv -f -- "$joined" "$cache/$ASSET_SHA" || return 1
+    cp -- "$cache/$ASSET_SHA" "$target"
+)
+
+linspace_platform() {
+    local os arch
+    case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo 'Linux or macOS is required.' >&2; return 1 ;; esac
+    case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) echo 'x86_64 or ARM64 is required.' >&2; return 1 ;; esac
+    printf '%s-%s\n' "$os" "$arch"
+}
+
+linspace_python() {
+    local minimum=${1:-9} platform archive runtime staged candidate
+    if command -v python3 >/dev/null 2>&1 && python3 -I -c "import sys; assert sys.version_info >= (3,$minimum)" 2>/dev/null; then
+        LINSPACE_PYTHON=$(command -v python3)
+        return 0
+    fi
+    platform=$(linspace_platform) || return 1
+    linspace_asset_info "python-$platform" 2>/dev/null || { printf "Python 3.9+ is required on %s; install it and retry.\n" "$platform" >&2; return 1; }
+    runtime=$LINSPACE_DOWNLOAD_CACHE/python-$ASSET_SHA
+    [[ ! -L $runtime ]] || return 1
+    if [[ ! -x $runtime/python/bin/python3 ]]; then
+        mkdir -p -- "$LINSPACE_DOWNLOAD_CACHE" || return 1
+        staged=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.python.XXXXXX") || return 1
+        archive=$staged/runtime.tar.gz
+        if ! linspace_asset "python-$platform" "$archive" || ! tar -xzf "$archive" -C "$staged"; then
+            rm -rf -- "$staged"; return 1
+        fi
+        rm -f -- "$archive"
+        candidate=$staged/python/bin/python3
+        if ! "$candidate" -I -c 'import ssl, sys; assert sys.version_info >= (3,11)' ; then
+            rm -rf -- "$staged"; return 1
+        fi
+        if [[ -e $runtime ]]; then rm -rf -- "$staged"; else mv -- "$staged" "$runtime" || return 1; fi
+    fi
+    LINSPACE_PYTHON=$runtime/python/bin/python3
+    "$LINSPACE_PYTHON" -I -c "import sys; assert sys.version_info >= (3,$minimum)"
+}

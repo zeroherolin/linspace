@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-/usr/bin/python3 - "$@" <<'LINSPACE_SUB_PY'
+python=/usr/local/lib/linspace-mihomo/python
+[[ -x $python ]] || python=/usr/bin/python3
+"$python" - "$@" <<'LINSPACE_SUB_PY'
+import sys
+sys.path.insert(0, '/usr/local/lib/linspace-mihomo/vendor.zip')
 @@include:src/mihomo/sub.py@@
 LINSPACE_SUB_PY

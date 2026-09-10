@@ -20,6 +20,22 @@ BIN = Path('/usr/local/bin/mihomo')
 RUNNER = LIB / 'run-mihomo.sh'
 
 
+def process_sockets(pid):
+    # Match the daemon's filesystem credentials when /proc inspection is restricted.
+    # This needs no ptrace capability and keeps exact socket/PID verification.
+    uid, gid = os.geteuid(), os.getegid()
+    account = pwd.getpwnam('mihomo')
+    try:
+        if uid == 0:
+            os.setegid(account.pw_gid)
+            os.seteuid(account.pw_uid)
+        return {os.readlink(p) for p in Path(f'/proc/{pid}/fd').iterdir()}
+    finally:
+        if uid == 0:
+            os.seteuid(uid)
+            os.setegid(gid)
+
+
 def process_identity(pid):
     try:
         text = Path(f'/proc/{pid}/stat').read_text()
@@ -127,7 +143,7 @@ class UnixConnection(http.client.HTTPConnection):
 
 def ready(pid):
     try:
-        descriptors = {os.readlink(p) for p in Path(f'/proc/{pid}/fd').iterdir()}
+        descriptors = process_sockets(pid)
         found = set()
         for protocol in ('tcp', 'tcp6', 'udp', 'udp6'):
             for line in Path(f'/proc/{pid}/net/{protocol}').read_text().splitlines()[1:]:

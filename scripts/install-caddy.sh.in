@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Install the pinned official Debian package only when Caddy is absent.
+main() (
+    set -Eeuo pipefail
+    command -v caddy >/dev/null 2>&1 && exit 0
+    [[ $EUID == 0 && -f /etc/debian_version ]] || { echo 'Caddy installation requires root on Debian/Ubuntu.' >&2; exit 1; }
+    for command in curl dpkg sha256sum; do command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }; done
+    LINSPACE_DOWNLOAD_CACHE=/var/cache/linspace
+@@include:src/common/download.sh.in@@
+    platform=$(linspace_platform)
+    mkdir -p "$LINSPACE_DOWNLOAD_CACHE"
+    work=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.caddy.XXXXXX")
+    trap 'rm -rf -- "$work"' EXIT
+    linspace_asset "caddy-$platform" "$work/caddy.deb" || { echo 'Could not download Caddy.' >&2; exit 1; }
+    dpkg -i "$work/caddy.deb"
+)
+main "$@"
