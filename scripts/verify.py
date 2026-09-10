@@ -34,6 +34,7 @@ def verify(meta, local=False, quiet=False):
     domain = meta['domain']
     paths = ['ssh/' + meta.get('ssh_public_key_name', 'key.pub')] if meta['ssh_enabled'] else []
     paths += ['mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload', 'stash/clear']
+    paths += [f'{client}/uninstall' for client in ('mihomo', 'claude', 'codex')]
     paths += [f'stash/upload{n}' for n in range(8)]
     paths += ['stash/keys', 'stash/challenge']
     checks = [('/', 200, 'text/html', 'no-store')]

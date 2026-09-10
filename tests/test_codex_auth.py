@@ -47,7 +47,7 @@ class CodexAuthTests(unittest.TestCase):
         self.assertFalse((self.root / 'unexpected').exists())
         self.assertEqual(list(self.config_dir.iterdir()), [self.auth_file])
 
-    def test_existing_credentials_are_backed_up_and_repeat_is_idempotent(self):
+    def test_replacement_keeps_no_backups_and_repeat_is_idempotent(self):
         self.config_dir.mkdir(mode=0o755)
         previous = '{"tokens":{"access_token":"old-test-value"}}\n'
         self.auth_file.write_text(previous)
@@ -59,9 +59,7 @@ class CodexAuthTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn('new-test-value', result.stdout + result.stderr)
         backups = list(self.config_dir.glob('auth.json.backup.*'))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_text(), previous)
-        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+        self.assertEqual(backups, [])
         self.assertEqual(config.read_text(), 'model = "custom-model"\n')
         self.assertEqual(list(self.config_dir.glob('.auth.*')), [])
 
@@ -121,12 +119,12 @@ class CodexAuthTests(unittest.TestCase):
         self.assertEqual(target.read_text(), 'preserve me')
         self.assertFalse((self.root / 'absent').exists())
 
-    def test_failed_backup_or_replace_preserves_old_auth_and_cleans_temporary_files(self):
+    def test_failed_staging_or_replace_preserves_old_auth_and_cleans_temporary_files(self):
         self.config_dir.mkdir()
         self.auth_file.write_text('old-test-value')
         commands = self.root / 'commands'
         commands.mkdir()
-        for name in ('cat', 'mv'):
+        for name in ('mktemp', 'mv'):
             with self.subTest(command=name):
                 failing = commands / name
                 failing.write_text('#!/bin/sh\nexit 1\n')
@@ -159,16 +157,14 @@ class CodexAuthTests(unittest.TestCase):
         self.assertEqual(json.loads(self.auth_file.read_text())['OPENAI_API_KEY'], 'new-token')
         self.assertEqual(config.stat().st_mode & 0o777, 0o600)
         backups = list(self.config_dir.glob('config.toml.backup.*'))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_bytes(), original.encode())
-        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
-        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 1)
+        self.assertEqual(backups, [])
+        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 0)
         self.assertFalse(list(self.config_dir.glob('.codex-*')))
         # An unchanged token must not short-circuit a different URL update.
         result = self.run_script('-t', 'new-token', '-u', 'https://second.example/v1')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'base_url = "https://second.example/v1" # keep this', config.read_bytes())
-        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 1)
+        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 0)
 
     def test_omitting_url_keeps_even_invalid_config_byte_for_byte(self):
         self.config_dir.mkdir()

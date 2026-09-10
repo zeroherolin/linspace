@@ -10,7 +10,7 @@ curl -fsSL https://your-domain.cn/mihomo/install | bash
 
 This installs the pinned Mihomo version shown in the output, GeoIP and Python when needed. Failed downloads automatically use a verified download fallback. A fresh install starts nothing until you import a subscription.
 
-Rerunning install preserves a recognized linspace configuration. Back up and remove an unmanaged or supervised Mihomo installation before switching to this installer.
+Rerunning install preserves a recognized linspace configuration. Use [uninstall](#uninstall) to remove an unmanaged or supervised installation before switching.
 
 ## Import nodes
 
@@ -28,7 +28,7 @@ curl -fsSL https://your-domain.cn/mihomo/sub | bash -s -- "$HOME/private-proxies
 
 The YAML must contain a nonempty `proxies` array. Only nodes are imported; provider-only subscriptions and nodes that disable TLS verification are rejected.
 
-Import selects the first working node, starts the proxy and backs up any previous configuration. Failure preserves or restores the previous state. Keep subscriptions private.
+Import selects the first working node and starts the proxy. Failure preserves or restores the previous state; successful changes retain no backup. Keep subscriptions private.
 
 ## Use and restart
 
@@ -57,7 +57,15 @@ Restart preserves the configuration and node selection. There is no autostart, w
 tail -n 50 /var/log/mihomo/mihomo.log
 ```
 
-Configuration is in `/etc/mihomo/config.yaml`; nodes, GeoIP and backups are under `/var/lib/mihomo/`. The control socket is `/run/mihomo/control.sock`. TUN, built-in DNS, sniffing and automatic updates are disabled.
+Configuration is in `/etc/mihomo/config.yaml`; nodes and GeoIP are under `/var/lib/mihomo/`. The control socket is `/run/mihomo/control.sock`. TUN, built-in DNS, sniffing and automatic updates are disabled.
+
+## Uninstall
+
+```sh
+curl -fsSL https://your-domain.cn/mihomo/uninstall | bash
+```
+
+Stops the proxy and removes recognized installations, services, subscriptions, settings and caches. Clear proxy variables afterward. [Scope and preview](uninstall.md).
 
 ## Use a target bundle
 

@@ -28,3 +28,11 @@ bash mihomo/restart
 ```
 
 Run after reboot or process exit. There is no autostart or supervisor. Keep private subscriptions outside the bundle and public web root.
+
+## Uninstall
+
+```sh
+bash mihomo/uninstall
+```
+
+Stops and removes Mihomo, services, settings and subscriptions. Add `--dry-run` to preview. Clear proxy environment variables afterward.

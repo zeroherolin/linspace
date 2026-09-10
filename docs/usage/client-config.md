@@ -21,20 +21,9 @@ Keep configuration directories at mode `700` and files at `600`. The catalog pat
 
 ## Existing installations
 
-Downloads **replace whole files**, rather than merging settings. Back up files you have customized before downloading, for example:
+Downloads replace whole files rather than merging settings. A failed direct download may leave a partial file; retry successfully before starting the client.
 
-```sh
-cp -p ~/.claude/settings.json ~/.claude/settings.json.bak
-```
-
-```sh
-cp -p ~/.codex/config.toml ~/.codex/config.toml.bak
-cp -p ~/.codex/models-1m.json ~/.codex/models-1m.json.bak
-```
-
-Use an unused backup filename if `.bak` already exists. A failed direct download may leave a partial file: retry successfully or restore your backup before starting the client.
-
-Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) backs up and atomically replaces `auth.json`. Its optional `-u` also updates the selected provider's `base_url`; without `-u`, `config.toml` stays untouched.
+Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) replaces credentials atomically without retaining backups. Its optional `-u` also updates the selected provider's `base_url`; without `-u`, `config.toml` stays untouched.
 
 Restart the client after changing settings or the catalog. Site updates do not update client files automatically.
 

@@ -16,22 +16,26 @@ main() (
     bin=$HOME/.local/bin
     [[ $CLIENT != codex || -z ${CODEX_INSTALL_DIR:-} ]] || bin=$CODEX_INSTALL_DIR
     [[ $data == /* && $bin == /* && $bin != *:* && ! $bin =~ [[:cntrl:]] && ! $data =~ [[:cntrl:]] && ! -L $data && ! -L $bin ]] || fail 'Use absolute installation paths without symbolic-link directories.'
-    LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
+    LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace/$CLIENT
     [[ $LINSPACE_DOWNLOAD_CACHE == /* && ! -L $LINSPACE_DOWNLOAD_CACHE ]] || fail 'Use an absolute, private cache directory.'
     mkdir -p -- "$LINSPACE_DOWNLOAD_CACHE"
     [[ -O $LINSPACE_DOWNLOAD_CACHE ]] || fail 'The cache must belong to the current account.'
     chmod 700 "$LINSPACE_DOWNLOAD_CACHE"
+    lock=${XDG_STATE_HOME:-$HOME/.local/state}/linspace/locks/$CLIENT
+    [[ $lock == /* && ! -L $lock && ! -L $(dirname "$lock") ]] || fail 'Use a private, absolute state directory.'
     WORK=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.install.XXXXXX")
-    stage='' pending='' new_release='' backup='' activated=0
+    stage='' pending='' new_release='' activated=0 locked=0
     cleanup() {
         status=$?
         trap - EXIT
         rm -rf -- "$WORK"
+        if [[ $locked == 1 ]]; then rm -f -- "$lock/pid"; rmdir "$lock" 2>/dev/null || true; fi
+        rmdir "$(dirname "$lock")" "$(dirname "$(dirname "$lock")")" 2>/dev/null || true
+        rmdir "$LINSPACE_DOWNLOAD_CACHE" 2>/dev/null || true
         [[ -z $stage ]] || rm -rf -- "$stage"
         [[ -z $pending ]] || rm -rf -- "$pending"
         if [[ $activated == 0 ]]; then
             [[ -z $new_release ]] || rm -rf -- "$new_release"
-            [[ -z $backup ]] || rm -rf -- "$backup"
         fi
         exit "$status"
     }
@@ -39,6 +43,21 @@ main() (
     trap 'status=$?; linspace_log ERROR "Installation failed (exit $status)."; exit "$status"' ERR
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    mkdir -p -- "$(dirname "$lock")"
+    for ((attempt=0; attempt<30; attempt++)); do
+        if mkdir "$lock" 2>/dev/null; then locked=1; break; fi
+        [[ -d $lock && ! -L $lock ]] || fail 'Invalid installation lock.'
+        owner=''
+        if [[ -f $lock/pid ]]; then
+            IFS= read -r owner < "$lock/pid" || true
+            if [[ $owner =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+                rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true
+            fi
+        fi
+        sleep 1
+    done
+    [[ $locked == 1 ]] || fail 'Another installer is running; retry shortly.'
+    printf '%s\n' "${BASHPID:-$$}" > "$lock/pid"
 @@include:src/common/download.sh.in@@
     platform=$(linspace_platform) || exit 1
     # A separate process group lets the time limit also stop child downloads.
@@ -64,19 +83,96 @@ main() (
     linspace_log STEP "Install $CLIENT $ASSET_VERSION ($platform)"
     version=$ASSET_VERSION
     digest=$ASSET_SHA
-    # Do not downgrade a newer, functioning client when the network is unavailable.
-    newer_than_pinned() {
+    # Reuse installations from any source. Never silently replace a package
+    # manager's launcher with a second, independently managed installation.
+    version_at_least() {
         local output=$1 a b c x y z
         [[ $output =~ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] || return 1
         a=${BASH_REMATCH[1]}; b=${BASH_REMATCH[2]}; c=${BASH_REMATCH[3]}
         [[ $version =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
         x=${BASH_REMATCH[1]}; y=${BASH_REMATCH[2]}; z=${BASH_REMATCH[3]}
-        (( 10#$a > 10#$x || 10#$a == 10#$x && (10#$b > 10#$y || 10#$b == 10#$y && 10#$c > 10#$z) ))
+        (( 10#$a > 10#$x || 10#$a == 10#$x && (10#$b > 10#$y || 10#$b == 10#$y && 10#$c >= 10#$z) ))
     }
-    if [[ -x $bin/$CLIENT && ! -d $bin/$CLIENT ]] && bounded 15 "$bin/$CLIENT" --version > "$WORK/existing-version" 2>/dev/null && newer_than_pinned "$(cat "$WORK/existing-version")"; then
-        linspace_log OK "Keeping newer $CLIENT: $(cat "$WORK/existing-version")"
-        linspace_path_hint "$CLIENT" "$bin"
-        exit 0
+    prune_releases() {
+        local release=$1 previous in_use process target
+        # Delete only obsolete linspace releases. A running client may still need
+        # companion binaries, so retain its release until the next installation.
+        for previous in "$data"/* "$data"/.previous.*; do
+            [[ -e $previous || -L $previous ]] || continue
+            [[ $previous != "$release" ]] || continue
+            in_use=0
+            if [[ $(uname -s) == Linux && -d /proc ]]; then
+                for process in /proc/[0-9]*/exe; do
+                    target=$(readlink "$process" 2>/dev/null || true)
+                    case "$target" in "$previous"/*) in_use=1; break ;; esac
+                done
+            elif command -v lsof >/dev/null; then
+                [[ -z $(lsof -t +D "$previous" 2>/dev/null || true) ]] || in_use=1
+            else
+                in_use=1
+            fi
+            if [[ $in_use == 0 ]]; then rm -rf -- "$previous";
+            else linspace_log WARN "Still in use; retained until a later install: $previous"; fi
+        done
+    }
+    candidates=("$bin/$CLIENT")
+    IFS=: read -r -a path_dirs <<< "${PATH:-}"
+    for directory in "${path_dirs[@]}"; do
+        if [[ $directory == /* && $directory != "$bin" ]]; then candidates+=("$directory/$CLIENT"); fi
+    done
+    if [[ $CLIENT == claude ]]; then
+        for candidate in "$HOME"/.local/share/claude/versions/* "$HOME"/.claude/local/node_modules/.bin/claude; do
+            [[ ! -f $candidate ]] || candidates+=("$candidate")
+        done
+    else
+        for candidate in "${CODEX_HOME:-$HOME/.codex}"/packages/standalone/releases/*/bin/codex; do
+            [[ ! -f $candidate ]] || candidates+=("$candidate")
+        done
+    fi
+    existing='' existing_version=''
+    for candidate in "${candidates[@]}"; do
+        case "$candidate" in *.app/Contents/*) continue ;; esac
+        [[ -x $candidate && ! -d $candidate ]] || continue
+        if bounded 15 "$candidate" --version > "$WORK/existing-version" 2>/dev/null; then
+            output=$(cat "$WORK/existing-version")
+            [[ $CLIENT == codex && $output == *codex* || $CLIENT == claude && $output == *'Claude Code'* ]] || continue
+            complete=1
+            target=$(readlink "$candidate" 2>/dev/null || printf '%s' "$candidate")
+            case "$target" in
+                "$data"/*)
+                    relative=${target#"$data"/}; installed_root=$data/${relative%%/*}
+                    if [[ $CLIENT == codex ]]; then
+                        [[ -x $installed_root/bin/codex-code-mode-host && -x $installed_root/codex-path/rg ]] || complete=0
+                        [[ $platform != linux-* || -x $installed_root/codex-resources/bwrap ]] || complete=0
+                    fi ;;
+            esac
+            if [[ $complete == 1 ]] && version_at_least "$output"; then
+                if [[ $(basename "$candidate") != "$CLIENT" || $candidate == "$HOME"/.claude/local/* || $candidate == "${CODEX_HOME:-$HOME/.codex}"/packages/* ]]; then
+                    mkdir -p -- "$bin"
+                    pending=$(mktemp -d "$bin/.linspace.XXXXXX")
+                    ln -s "$candidate" "$pending/$CLIENT"
+                    mv -f -- "$pending/$CLIENT" "$bin/$CLIENT"
+                    rmdir "$pending"
+                    candidate=$bin/$CLIENT
+                fi
+                target=$(readlink "$candidate" 2>/dev/null || true)
+                case "$target" in
+                    "$data"/*) relative=${target#"$data"/}; prune_releases "$data/${relative%%/*}" ;;
+                esac
+                linspace_log OK "Using existing $CLIENT: $output"
+                linspace_log INFO "Command: $candidate"
+                linspace_path_hint "$CLIENT" "$(dirname "$candidate")"
+                exit 0
+            fi
+            existing=$candidate; existing_version=$output
+        fi
+    done
+    if [[ -n $existing ]]; then
+        target=$(readlink "$existing" || printf '%s' "$existing")
+        case "$target" in
+            "$data"/*) ;;
+            *) fail "Existing $existing_version at $existing. Update it with its original installer or package manager; /$CLIENT/uninstall removes all recognized installations before switching." ;;
+        esac
     fi
     linspace_asset "$CLIENT-$platform" "$WORK/client.tar.gz" || fail 'All download attempts failed. Rerun this command to reuse verified downloads.'
     # Extract into a fresh directory; never extract over user configuration or an existing install.
@@ -134,11 +230,6 @@ BWRAP_LICENSE
     link=$bin/$CLIENT
     [[ ! -d $link && ( ! -e $link || -f $link || -L $link ) ]] || fail 'The command path is not a file.'
     if [[ ! -L $link || $(readlink "$link") != "$release/$executable" ]]; then
-        if [[ -e $link || -L $link ]]; then
-            backup=$(mktemp -d "$data/.previous.XXXXXX")
-            cp -P -- "$link" "$backup/$CLIENT"
-            linspace_log INFO "Previous launcher: $backup/$CLIENT"
-        fi
         ln -s "$release/$executable" "$WORK/launcher"
         # Stage the symlink on the target filesystem before an atomic rename.
         pending=$(mktemp -d "$bin/.linspace.XXXXXX")
@@ -148,6 +239,11 @@ BWRAP_LICENSE
         rmdir "$pending"
     fi
     activated=1
+    prune_releases "$release"
+    # Verified payloads are disposable after activation; no permanent backups.
+    for cached in "$LINSPACE_DOWNLOAD_CACHE"/*; do
+        if [[ -f $cached && ! -L $cached ]]; then rm -f -- "$cached"; fi
+    done
     linspace_log OK "Installed $CLIENT $version at $link"
     linspace_path_hint "$CLIENT" "$bin"
     linspace_log INFO 'Rerun after site updates to install a newer reviewed version.'

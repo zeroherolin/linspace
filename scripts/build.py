@@ -30,6 +30,8 @@ def render(relative, values, stack=()):
     text = INCLUDE.sub(lambda m: render(m[1], values, (*stack, path)), path.read_text())
     if relative.startswith('src/') and path.suffix == '.py':
         text = text.replace('from linspace_console import linspace_log', render('scripts/linspace_console.py', values, (*stack, path)))
+        if 'from common import *' in text:
+            text = text.replace('from common import *', render('src/lifecycle/common.py', values, (*stack, path)))
     for key, value in values.items():
         text = text.replace('@@' + key + '@@', value)
     if re.search(r'@@[A-Z_]+@@|@@include:', text):
@@ -81,7 +83,15 @@ def build(config_path, output=None, internal=False):
     key_name = config['ssh_public_key_name']
     values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', **downloads.values()}
     for client, title in [('claude', 'Claude Code'), ('codex', 'Codex')]:
-        write(release, f'site/{client}/install', render('src/common/client-install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title}))
+        write(release, f'site/{client}/install', render('src/lifecycle/install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title}))
+    resources = json.loads((ROOT / 'config/downloads.json').read_text())['assets']
+    for client, title in [('claude', 'Claude Code'), ('codex', 'Codex'), ('mihomo', 'Mihomo')]:
+        hashes = {digest for name, entry in resources.items() if name.startswith(client + '-')
+                  for digest in [entry['sha256'], *(part['sha256'] for part in entry['parts'])]}
+        uninstall_values = {**values, 'CLIENT': client, 'CLIENT_NAME': title, 'CLIENT_CACHE_HASHES': ' '.join(sorted(hashes))}
+        uninstall_values['UNINSTALL_RETENTION'] = 'No proxy data is retained.' if client == 'mihomo' else 'Keeps only conversation history.'
+        uninstall_values['UNINSTALL_BODY'] = render('src/lifecycle/mihomo.py' if client == 'mihomo' else 'src/lifecycle/clients.py', uninstall_values)
+        write(release, f'site/{client}/uninstall', render('src/lifecycle/uninstall.sh.in', uninstall_values))
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
         'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/codex/auth': 'src/codex/auth.sh.in',

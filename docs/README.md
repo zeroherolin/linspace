@@ -2,9 +2,9 @@
 
 Replace `your-domain.cn` with your site's domain. Run commands one at a time and stop if a command fails. Client machines do not need this Git repository.
 
-These examples use the default configuration directories. Downloads replace existing settings; see [configuration files](usage/client-config.md) for backups and custom directories.
+These examples use the default configuration directories. Downloads replace existing settings; see [configuration files](usage/client-config.md) for custom directories.
 
-Installers use reviewed native packages from official sources, with verified fallback downloads. They never edit Shell startup files. Follow the printed PATH hint if a command is not found. Linux is the primary client platform; macOS supports Intel and Apple Silicon where upstream binaries are compatible. Linux and macOS need their standard shell tools, curl, tar, gzip and a SHA256 tool; OpenSSH is required for SSH/Stash.
+Installers reuse a working same-version or newer client, or install a reviewed native package with verified download fallback. They never edit shell startup files. Follow the printed PATH hint if a command is not found. Linux is the primary client platform; macOS supports Intel and Apple Silicon where upstream binaries are compatible. Linux and macOS need their standard shell tools, curl, tar, gzip and a SHA256 tool; OpenSSH is required for SSH/Stash.
 
 ## 1. SSH access
 
@@ -108,5 +108,7 @@ curl -fsSL https://your-domain.cn/stash/clear | bash
 The client finds a matching key in `ssh-agent` or `~/.ssh`; normally no `-i` or token is needed. [Stash guide](usage/stash.md).
 
 ## Server and maintainer guides
+
+To stop and remove a client while keeping conversation history, use its [uninstall command](usage/uninstall.md).
 
 [Deploy](../README.md#deploy) · [Deployment details](deployment.md) · [Operations](operations.md) · [Architecture](architecture.md) · [Stash protocol](stash-auth.md) · [Contributing](../CONTRIBUTING.md) · [Testing](testing.md)

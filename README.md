@@ -91,6 +91,8 @@ Verification checks public HTTPS without changing channel data. If it fails, use
 
 Linux installers automatically use verified fallback downloads when upstream access fails.
 
+Installers reuse compatible existing clients and keep no permanent installation backups. Each client has an [uninstall endpoint](docs/usage/uninstall.md); Claude/Codex retain conversation history only.
+
 The [quick start](docs/README.md) puts the common commands on one page. Stash reads are public; writes use SSH signatures and normally need no `-i` or token.
 
 ## Update

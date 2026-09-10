@@ -24,10 +24,10 @@ main() (
     [[ $EUID -eq 0 && -f /etc/debian_version ]] || fail 'Run as root on Debian/Ubuntu.'
     if [[ -n "$GEO_FILE" ]]; then GEO_FILE=$(realpath -e "$GEO_FILE"); fi
     if [[ -e /etc/systemd/system/mihomo.service || -e /etc/mihomo/supervisord.conf ]]; then
-        fail 'Remove the previous supervised installation before using these background scripts.'
+        fail 'A supervised installation exists. Use /mihomo/uninstall before switching to these background scripts.'
     fi
     if [[ -e "$BIN" || -e "$CONFIG" || -e "$LIB/managed" ]]; then
-        grep -qx 'linspace-mihomo-background-v1' "$LIB/managed" 2>/dev/null || fail 'An older or unmanaged installation exists. Back it up and uninstall it first.'
+        grep -qx 'linspace-mihomo-background-v1' "$LIB/managed" 2>/dev/null || fail 'An unmanaged installation exists. Use /mihomo/uninstall before switching to this installer.'
     fi
     [[ ! -L "$ROOT" && ! -L "$LIB" && ! -L /etc/mihomo ]] || fail 'Managed directories must not be symbolic links.'
     case "$(uname -m)" in

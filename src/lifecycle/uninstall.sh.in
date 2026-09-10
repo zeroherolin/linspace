@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Uninstall @@CLIENT_NAME@@. The complete script is parsed before execution.
+main() (
+    set -Eeuo pipefail
+    umask 077
+@@include:src/common/ui.sh@@
+    case ${1:-} in
+        -h|--help)
+            printf 'Usage: curl -fsSL https://@@DOMAIN@@/@@CLIENT@@/uninstall | bash -s -- [--dry-run] [--bin /absolute/path]\n'
+            printf 'Stops and removes recognized installations, settings and credentials. @@UNINSTALL_RETENTION@@ No backups or shell profile edits.\n'
+            exit 0 ;;
+    esac
+    [[ -z ${SUDO_USER:-} || ${SUDO_USER:-} == root || @@CLIENT@@ == mihomo ]] || {
+        linspace_log ERROR 'Run as the client account, without sudo. Remove system packages separately as administrator.'; exit 1;
+    }
+    for command in curl tar gzip; do command -v "$command" >/dev/null || { linspace_log ERROR "Missing prerequisite: $command"; exit 1; }; done
+@@include:src/common/download.sh.in@@
+    # A downloaded runtime lives only for this uninstall, including on failure.
+    temporary=$(mktemp -d "${TMPDIR:-/tmp}/linspace-uninstall.XXXXXX")
+    trap 'rm -rf -- "$temporary"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    LINSPACE_DOWNLOAD_CACHE=$temporary/runtime
+    linspace_python 9 || { linspace_log ERROR 'Could not prepare Python for uninstall.'; exit 1; }
+    export npm_config_cache=$temporary/npm npm_config_update_notifier=false
+    export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+    cd -- "$temporary"
+    "$LINSPACE_PYTHON" -I - "$@" <<'LINSPACE_UNINSTALL_PY'
+@@UNINSTALL_BODY@@
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        linspace_log('ERROR', error)
+        sys.exit(1)
+LINSPACE_UNINSTALL_PY
+)
+main "$@"

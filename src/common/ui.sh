@@ -10,14 +10,16 @@ linspace_log() {
 }
 
 linspace_path_hint() {
-    local client=$1 bin=$2
-    case ":${PATH:-}:" in
-        *":$bin:"*) linspace_log OK "Ready: $client" ;;
-        *)
-            linspace_log WARN "PATH setup required to run $client by name"
-            linspace_log INFO 'Run this in your current terminal:'
-            printf '  export PATH=%q:"$PATH"\n' "$bin" >&2 || true
-            linspace_log INFO 'For future terminals, add that export to your shell startup file.'
-            linspace_log INFO 'Examples: ~/.bashrc (Bash) or ~/.zshrc (Zsh). No startup file was modified.' ;;
-    esac
+    local client=$1 bin=$2 active
+    active=$(type -P "$client" 2>/dev/null || true)
+    if [[ $active == "$bin/$client" ]]; then
+        linspace_log OK "Ready: $client"
+    else
+        [[ -z $active ]] || linspace_log WARN "Another command is first in PATH: $active"
+        linspace_log WARN "PATH setup required to run $client by name"
+        linspace_log INFO 'Run this in your current terminal:'
+        printf '  export PATH=%q:"$PATH"\n' "$bin" >&2 || true
+        linspace_log INFO 'For future terminals, add that export to your shell startup file.'
+        linspace_log INFO 'Examples: ~/.bashrc (Bash) or ~/.zshrc (Zsh). No startup file was modified.'
+    fi
 }

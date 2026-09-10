@@ -420,12 +420,9 @@ def main(argv=None):
             wait_ready()
             verify_runtime(names, selected)
             verify_proxy_request()
-            # Retain the complete previous configuration/cache as a private backup.
-            archive = ROOT / ('backup-' + str(time.time_ns()))
-            os.replace(backup, archive)
             changed = False
             linspace_log('OK', f'Updated {len(names)} proxies; {GROUP} -> {selected}')
-            linspace_log('INFO', f'Previous configuration: {archive}; proxy: 127.0.0.1:7890')
+            linspace_log('INFO', 'Proxy: 127.0.0.1:7890; no backup retained.')
         except BaseException:
             if changed:
                 try:

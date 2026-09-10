@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -20,8 +21,11 @@ class DownloadTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(prefix='linspace-download-');self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.bin=self.root/'tools';self.bin.mkdir()
+        for name in ('bash','tar','gzip','mktemp','diff','sha256sum','shasum','cat','chmod','mkdir','rm','rmdir','cp','mv','ln','readlink','dirname','basename','sleep','wc'):
+            command=shutil.which(name)
+            if command:(self.bin/name).symlink_to(command)
         self.home=self.root/"client 'home";self.home.mkdir()
-        self.env={**os.environ,'HOME':str(self.home),'CODEX_HOME':str(self.home/'.codex'),'CLAUDE_CONFIG_DIR':str(self.home/'.claude'),'XDG_CACHE_HOME':str(self.home/'cache'),'XDG_DATA_HOME':str(self.home/'data'),'XDG_CONFIG_HOME':str(self.home/'.config'),'XDG_STATE_HOME':str(self.home/'.state'),'ZDOTDIR':str(self.home),'PATH':str(self.bin)+':'+os.environ['PATH'],'FIXTURES':str(self.root),'https_proxy':'http://broken.example.test:1','NO_COLOR':'1'}
+        self.env={**os.environ,'HOME':str(self.home),'CODEX_HOME':str(self.home/'.codex'),'CLAUDE_CONFIG_DIR':str(self.home/'.claude'),'XDG_CACHE_HOME':str(self.home/'cache'),'XDG_DATA_HOME':str(self.home/'data'),'XDG_CONFIG_HOME':str(self.home/'.config'),'XDG_STATE_HOME':str(self.home/'.state'),'ZDOTDIR':str(self.home),'PATH':str(self.bin),'FIXTURES':str(self.root),'https_proxy':'http://broken.example.test:1','NO_COLOR':'1'}
         for key in ('BASH_ENV','ENV','SUDO_USER','CODEX_INSTALL_DIR'):self.env.pop(key,None)
         self.executable('uname','#!/bin/sh\ncase "$1" in -s) echo Linux;; *) echo x86_64;; esac\n')
         self.executable('curl',f'#!{sys.executable}\n'+'''import os,sys,json
@@ -40,7 +44,9 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         for path,text in self.profiles.items():path.write_text(text)
 
     def executable(self,name,text):
-        path=self.bin/name;path.write_text(text);path.chmod(0o755)
+        path=self.bin/name
+        if path.is_symlink():path.unlink()
+        path.write_text(text);path.chmod(0o755)
 
     def package_script(self,entrypoint='#!/bin/sh\necho codex-cli 0.154.0\n'):
         package=io.BytesIO()
@@ -52,7 +58,7 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         for i,part in enumerate(parts):(self.root/f'part{i}').write_bytes(part)
         hashes=' '.join(hashlib.sha256(p).hexdigest() for p in parts);sizes=' '.join(str(len(p)) for p in parts)
         case=f'codex-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(data)}; ASSET_URL=https://upstream.test/package; ASSET_VERSION=0.154.0; ASSET_PART_SHAS=({hashes}); ASSET_PART_SIZES=({sizes}); ASSET_PART_URLS=(https://fallback.test/part0 https://fallback.test/part1);;'
-        return build.render('src/common/client-install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'codex','CLIENT_NAME':'Codex','ASSET_CASES':case})
+        return build.render('src/lifecycle/install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'codex','CLIENT_NAME':'Codex','ASSET_CASES':case})
 
     def run_script(self,script=None):
         return subprocess.run(['bash','-s'],input=script or self.script,env=self.env,text=True,capture_output=True,timeout=15,start_new_session=True)
@@ -72,7 +78,8 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         backups=list((self.home/'data/linspace/codex').glob('.previous.*'))
         (self.root/'requests').write_text('');result=self.run_script()
         self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(self.requests(),[])
-        self.assertEqual(list((self.home/'data/linspace/codex').glob('.previous.*')),backups)
+        self.assertEqual(list((self.home/'data/linspace/codex').glob('.previous.*')),[])
+        self.assertEqual(backups, [])
 
     def test_path_hint_is_executable_and_profiles_are_untouched(self):
         result=self.run_script();self.assertEqual(result.returncode,0,result.stderr)
@@ -91,13 +98,51 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
     def test_bad_fallback_preserves_launcher_and_cleans_partial_files(self):
         (self.root/'corrupt').touch();result=self.run_script();self.assertNotEqual(result.returncode,0)
         self.assertEqual(self.launcher.read_text(),'previous launcher')
-        self.assertFalse(list((self.home/'cache/linspace').glob('.*')))
+        self.assertFalse(list((self.home/'cache/linspace/codex').glob('.*')))
 
     def test_newer_install_is_never_downgraded(self):
         self.launcher.write_text('#!/bin/sh\necho codex-cli 0.200.0\n');self.launcher.chmod(0o755)
         original=self.launcher.read_bytes();result=self.run_script()
-        self.assertEqual(result.returncode,0,result.stderr);self.assertIn('Keeping newer',result.stderr)
+        self.assertEqual(result.returncode,0,result.stderr);self.assertIn('Using existing',result.stderr)
         self.assertEqual(self.launcher.read_bytes(),original);self.assertEqual(self.requests(),[])
+
+    def test_same_version_in_path_is_reused_without_creating_another_install(self):
+        self.executable('codex', '#!/bin/sh\necho codex-cli 0.154.0\n')
+        original = self.launcher.read_bytes()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Using existing', result.stderr)
+        self.assertEqual(self.requests(), [])
+        self.assertEqual(self.launcher.read_bytes(), original)
+        self.assertFalse((self.home / 'data/linspace/codex').exists())
+
+    def test_older_external_install_is_not_silently_replaced(self):
+        self.executable('codex', '#!/bin/sh\necho codex-cli 0.100.0\n')
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('original installer or package manager', result.stderr)
+        self.assertEqual(self.requests(), [])
+
+    def test_unlinked_official_install_is_reused_with_one_launcher(self):
+        official = self.home / '.codex/packages/standalone/releases/0.154.0/bin/codex'
+        official.parent.mkdir(parents=True)
+        official.write_text('#!/bin/sh\necho codex-cli 0.154.0\n')
+        official.chmod(0o755)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launcher.resolve(), official.resolve())
+        self.assertEqual(self.requests(), [])
+        self.assertFalse((self.home / 'data/linspace/codex').exists())
+
+    def test_missing_managed_companion_is_repaired_without_a_backup(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        package = self.launcher.resolve().parent.parent
+        (package / 'codex-path/rg').unlink()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        current = self.launcher.resolve().parent.parent
+        self.assertTrue((current / 'codex-path/rg').is_file())
+        self.assertFalse(list(current.parent.glob('.previous.*')))
 
     def test_failed_activation_leaves_no_staging_or_release(self):
         self.executable('mv',f'#!{sys.executable}\n'+'''import os,sys

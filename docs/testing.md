@@ -35,11 +35,13 @@ Test bundles also require `--internal-test`. Production uses issued site details
 | --- | --- |
 | Deployment | First and repeat deployment, rollback, other-site preservation, public HTTPS |
 | SSH | Custom/default names, disabled publishing, fingerprint, import and actual login |
-| Mihomo | Install, valid/invalid subscriptions, restart, preserved settings and verified proxy HTTPS |
-| Claude Code | Installer, configuration replacement and intended login method |
-| Codex | Installer, TOML/catalog compatibility, relative paths, auth backup/permissions/failure handling |
+| Mihomo | Install, subscriptions, restart, verified proxy HTTPS, service/process uninstall and reinstall |
+| Claude Code | Native/npm coexistence, reuse, uninstall with retained history and reinstall |
+| Codex | Native/npm coexistence, reuse, catalog/auth compatibility, failed-write recovery, uninstall with retained history and reinstall |
 | Stash | All channels and aliases, file/agent key discovery, replay/tamper rejection, clear and preserved data |
 
 Test non-root accounts and paths containing spaces. Compare source and published hashes. Exercise Codex's hidden token prompt, `-t`, optional `-u`, unchanged configuration without `-u`, and failed-write recovery with synthetic credentials. A stored login does not prove provider access or context capacity.
 
 Record the revision, runtimes, network route, failures and skipped checks. Restore initial data and remove test-created files, accounts and credentials. A loopback success alone does not prove public reachability.
+
+Exercise uninstall and real process stopping only in disposable Linux containers. macOS tests use temporary homes and mocked process/package-manager results; they must not inspect or stop personal clients. Include repeated uninstall, preview, symlink protection, mixed installation sources and byte-for-byte history preservation.

@@ -74,4 +74,4 @@ Channel files are `/var/lib/stashd/download0` through `download7`. A removed cha
 
 ## Remove the site
 
-Save needed configuration, channel data and backups. Remove the managed Caddy site and its explicit import, preserving shared wildcard imports and other sites. Validate and reload Caddy, then stop and disable `stashd.socket` and `stashd.service`. Remove only this installation's files and account. There is no automatic uninstall command.
+Save needed configuration, channel data and backups. Remove the managed Caddy site and its explicit import, preserving shared wildcard imports and other sites. Validate and reload Caddy, then stop and disable `stashd.socket` and `stashd.service`. Remove only this installation's files and account. The web server has no automatic uninstall command; client uninstall endpoints do not remove the site.

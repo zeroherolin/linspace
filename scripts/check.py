@@ -29,11 +29,14 @@ def main():
         config.write_text(json.dumps({'domain': 'check.example.test', 'site_name': 'Build check', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
         release = build.build(config, root / 'dist', internal=True)
         deploy.checked_release(release)
-        for path in [*list((release / 'site/mihomo').glob('*')), *list((release / 'site/stash').glob('upload*')), release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
+        for path in [*list((release / 'site/mihomo').glob('*')), *list((release / 'site/stash').glob('upload*')), *list((release / 'site').glob('*/uninstall')), release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
             if path.is_file():
                 subprocess.run(['bash', '-n', path], check=True)
                 if path.parent.name == 'stash':
                     embedded = path.read_text().split("<<'LINSPACE_STASH_PY'\n", 1)[1].rsplit('\nLINSPACE_STASH_PY', 1)[0]
+                    ast.parse(embedded, filename=str(path))
+                if path.name == 'uninstall':
+                    embedded = path.read_text().split("<<'LINSPACE_UNINSTALL_PY'\n", 1)[1].rsplit('\nLINSPACE_UNINSTALL_PY', 1)[0]
                     ast.parse(embedded, filename=str(path))
         for path in release.rglob('*.py'):
             ast.parse(path.read_text(), filename=str(path))

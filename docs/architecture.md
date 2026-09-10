@@ -10,7 +10,8 @@
 | `scripts/build.py` | Render files and create checksummed bundles |
 | `scripts/deploy.py` | Back up, activate, verify and recover |
 | Caddy | HTTPS, route allowlists, caching and body limits |
-| `src/common/` | Shared installation and download fallback |
+| `src/common/` | Download fallback and terminal output |
+| `src/lifecycle/` | Client installation, source discovery, process stopping and uninstall |
 | `src/mihomo/` | Client proxy tools |
 | `src/codex/` | Local API credential setup |
 | `src/stash/` | Signed upload clients and the text writer |
@@ -44,6 +45,6 @@ Caddy serves immutable files through `/srv/linspace/current` and channel data fr
 
 Uploads replace files atomically. Clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry; connection and verification capacity are bounded.
 
-The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. Optional `-u` validates and updates the selected provider's existing `base_url` in `config.toml`, preserving other settings and attempting rollback on a write failure. It sends no credentials to the site or model provider.
+The Codex auth script atomically replaces local `auth.json` with mode `600`, without retained backups. Optional `-u` validates and updates the selected provider's existing `base_url` in `config.toml`, preserving other settings and attempting rollback on a write failure. It sends no credentials to the site or model provider.
 
 Deployment uses a lock, immutable releases and a switched symlink. Backups cover managed configuration, authorization, code, units and the previous pointer. Channel data is separate. [Paths and recovery](deployment.md).

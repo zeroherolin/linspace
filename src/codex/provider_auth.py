@@ -89,13 +89,13 @@ def save_pair(config_dir, url, token):
         auth.chmod(0o600)
     changes = [(path, old, new) for path, old, new in
                ((config, old_config, updated), (auth, old_auth, auth_data)) if old != new]
-    temporary, backups, applied = {}, {}, []
+    temporary, originals, applied = {}, {}, []
     try:
-        # Prepare and back up both files before publishing either change.
+        # Prepare both files before publishing either change; keep rollback bytes only in memory.
         for path, old, new in changes:
             temporary[path] = private_file(config_dir, '.codex-update-', new)
             if old is not None:
-                backups[path] = private_file(config_dir, path.name + '.backup.', old)
+                originals[path] = old
         for path, old, _ in changes:
             if regular_bytes(path) != old:
                 raise ValueError('Configuration changed during the update; retry after other edits finish.')
@@ -106,8 +106,8 @@ def save_pair(config_dir, url, token):
         rollback_failed = False
         for path in reversed(applied):
             try:
-                if path in backups:
-                    restore = private_file(config_dir, '.codex-restore-', backups[path].read_bytes())
+                if path in originals:
+                    restore = private_file(config_dir, '.codex-restore-', originals[path])
                     try:
                         os.replace(restore, path)
                     finally:
@@ -117,13 +117,11 @@ def save_pair(config_dir, url, token):
             except OSError:
                 rollback_failed = True
         if rollback_failed:
-            raise RuntimeError(f'Write failed and rollback was incomplete; restore the backups in {config_dir}.') from error
+            raise RuntimeError(f'Write failed and rollback was incomplete in {config_dir}; restore your configuration before retrying.') from error
         raise
     finally:
         for path in temporary.values():
             path.unlink(missing_ok=True)
-    for path in backups.values():
-        linspace_log('INFO', f'Previous file: {path}')
     linspace_log('OK', 'Saved API credentials and selected provider base_url.' if changes else 'API credentials and base_url are already set.')
 
 

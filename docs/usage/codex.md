@@ -10,11 +10,11 @@ export PATH="$HOME/.local/bin:$PATH"
 codex --version
 ```
 
-The script installs a reviewed native version from official sources, with automatic verified fallback. It preserves a newer working installation. It never edits shell startup files; follow the PATH hint for a custom install directory. Rerun after site updates to install a newer reviewed version.
+The script reuses a working same-version or newer installation. Otherwise it installs a reviewed native package, with verified download fallback. It never edits shell startup files or retains launcher backups. Rerun to update a linspace installation; update an older external installation with its original installer or package manager.
 
 ## Configure
 
-These commands replace the current configuration. For backups or a custom `CODEX_HOME`, see [configuration files](client-config.md).
+These commands replace the current configuration. For a custom `CODEX_HOME`, see [configuration files](client-config.md).
 
 ```sh
 install -d -m 700 ~/.codex
@@ -57,9 +57,9 @@ curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' 
 
 `-u` replaces the existing `base_url` for the provider selected by `model_provider` in `config.toml`. Comments and other providers are preserved. **Omit `-u` to leave `config.toml` untouched.** Download the configuration first; invalid or unsupported configuration stops the update before credentials are changed.
 
-The TOML parser is bundled. Missing Python is downloaded automatically on supported platforms. Changed files are backed up before replacement.
+The TOML parser is bundled. Missing Python is downloaded automatically on supported platforms. Updates use staged writes and retain no backups after success.
 
-The script writes `auth.json` under `CODEX_HOME`, or `~/.codex` by default, with mode `600`. It backs up existing credentials and writes only on the client. It does not contact the provider to validate the token. The preset uses file-based credential storage; custom keyring or provider settings may use other credentials.
+The script writes `auth.json` under `CODEX_HOME`, or `~/.codex` by default, with mode `600`. It replaces credentials only on the client and does not contact the provider to validate the token. The preset uses file-based credential storage; custom keyring or provider settings may use other credentials.
 
 For ChatGPT account sign-in, use `codex login` instead. [Official authentication](https://learn.chatgpt.com/docs/auth).
 
@@ -73,3 +73,11 @@ codex
 ```
 
 Login status confirms stored credentials, not provider access. If needed, [enable the proxy](mihomo.md#use-and-restart) before starting Codex.
+
+## Uninstall
+
+```sh
+curl -fsSL https://your-domain.cn/codex/uninstall | bash
+```
+
+Stops Codex and removes recognized CLI installations, settings and credentials, keeping only conversation history. [Scope and preview](uninstall.md).

@@ -121,6 +121,7 @@ def main():
                 verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name']}, args.local)
             else:
                 paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload0', 'stash/download0', 'stash/clear']
+                paths += [f'{client}/uninstall' for client in ('mihomo', 'claude', 'codex')]
                 if key:
                     paths.insert(1, 'ssh/' + config['ssh_public_key_name'])
                 for path in paths:

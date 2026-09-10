@@ -5,7 +5,6 @@ set +x
 set -Eeuo pipefail
 # EXIT traps on newer Bash run after function-local variables have unwound.
 linspace_auth_tmp=''
-linspace_auth_pending_backup=''
 
 fail() { linspace_log ERROR "$*"; exit 1; }
 usage() {
@@ -16,7 +15,7 @@ Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE
   -h, --help         Show this help
 Without -t, read the token privately from the terminal.
 Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
-Existing credentials are backed up before replacement. Run without sudo.
+Credentials are replaced atomically without retained backups. Run without sudo.
 Without -u, config.toml is untouched. Missing Python is downloaded with a verified fallback.
 USAGE
 }
@@ -24,7 +23,7 @@ USAGE
 main() {
     local token='' token_given=false config_dir auth_file escaped
     local base_url='' url_given=false
-    local backup='' LC_ALL=C
+    local LC_ALL=C
     while [[ $# -gt 0 ]]; do
         case $1 in
             -t|--token)
@@ -72,7 +71,7 @@ LINSPACE_CODEX_PROVIDER_PY
     fi
 
     # Keep the old credentials intact until a complete replacement is ready.
-    trap 'rm -f -- "${linspace_auth_tmp:-}" "${linspace_auth_pending_backup:-}"' EXIT
+    trap 'rm -f -- "${linspace_auth_tmp:-}"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     linspace_auth_tmp=$(mktemp "$config_dir/.auth.XXXXXX")
@@ -88,14 +87,9 @@ LINSPACE_CODEX_PROVIDER_PY
             linspace_log OK "Credentials already saved in $auth_file"
             return 0
         fi
-        linspace_auth_pending_backup=$(mktemp "$config_dir/auth.json.backup.XXXXXX")
-        cat -- "$auth_file" > "$linspace_auth_pending_backup"
-        backup=$linspace_auth_pending_backup
-        linspace_auth_pending_backup=''
     fi
     mv -f -- "$linspace_auth_tmp" "$auth_file"
     linspace_auth_tmp=''
-    [[ -z $backup ]] || linspace_log INFO "Previous credentials: $backup"
     linspace_log OK "Saved API credentials to $auth_file (mode 600)."
     linspace_log INFO 'Token validity is checked when Codex connects to your provider.'
 }

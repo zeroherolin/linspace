@@ -10,7 +10,7 @@ export PATH="$HOME/.local/bin:$PATH"
 claude --version
 ```
 
-The script installs a reviewed native version from official sources, with automatic verified fallback. It preserves a newer working installation. It never edits shell startup files. Follow the printed PATH hint, then rerun after site updates to install a newer reviewed version.
+The script reuses a working same-version or newer installation. Otherwise it installs a reviewed native package, with verified download fallback. It never edits shell startup files or retains launcher backups. Rerun to update a linspace installation; update an older external installation with its original installer or package manager.
 
 ## Configure
 
@@ -35,3 +35,11 @@ claude
 Complete authentication when prompted. Shared settings contain no credentials. If a proxy is needed, [enable it in the current terminal](mihomo.md#use-and-restart) first.
 
 Restart Claude after replacing settings. [Official settings reference](https://code.claude.com/docs/en/settings).
+
+## Uninstall
+
+```sh
+curl -fsSL https://your-domain.cn/claude/uninstall | bash
+```
+
+Stops Claude Code and removes recognized CLI installations, settings and credentials, keeping only conversation history. [Scope and preview](uninstall.md).

@@ -26,6 +26,7 @@ Edit `src/`, `scripts/`, `config/`, `docs/` and `packaging/`; do not edit genera
 - Use relative paths for companion client files.
 - Write English user guides with short, standalone commands. Keep loops, functions and recovery logic in tools, not copy-and-paste setup blocks.
 - Keep private deployment details and session history outside the repository.
+- Keep lifecycle behavior in `src/lifecycle/`. Reuse existing installations; never remove desktop bundles, shared runtimes or unrelated processes. Uninstall keeps conversation history and removes credentials. Successful client operations retain no backups.
 
 Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When changing configuration fields, cover both new and existing profiles. Check Markdown links, anchors and shell examples.
 
