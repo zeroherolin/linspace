@@ -1,53 +1,28 @@
-# linspace deployment release
+# linspace server bundle
 
-This bundle is configured for the domain and homepage recorded in `release.json`.
-It contains public files, service definitions, Caddy configuration, and its own
-deployment and verification tools. No checkout, third-party Python packages, or build tool
-is required on the web host. Python 3.9+, Bash, and a Debian 12+ or Ubuntu 22.04+
-host running systemd are required. An existing Caddy must be version 2.10 or later. Missing Caddy and runtime tools are installed by the
-installer from the official Caddy stable apt repository.
+This bundle contains the domain/homepage, SSH key when selected, Mihomo scripts/data, Claude JSON, Codex TOML/model catalog, Stash clients/services, and deployment tools. Claude and Codex installer routes redirect upstream. Site values, including the public SSH key filename, are in `release.json`.
 
-Verify the archive against a checksum received through your trusted release
-channel, then extract into a new directory. Run the following from the extracted
-`linspace-site` directory; omit sudo when already root:
+Use a Debian 12+ or Ubuntu 22.04+ systemd host with root access, Python 3.9+ and Bash. Existing Caddy must be 2.10+; missing runtime tools/Caddy are installed from apt. This rendered bundle needs no Git checkout, build step or TOML parser. DNS and filing must be complete and TCP 80/443 reachable.
+
+Verify the archive against a trusted checksum before extracting. From the extracted `linspace-site` directory:
 
 ```sh
 sha256sum --check SHA256SUMS
 bash linspace --dry-run
 sudo bash linspace
+python3 verify.py
 ```
 
-The domain must already resolve to this host, its filing details must be
-complete, and TCP ports 80/443 must be reachable. The installer preserves other
-Caddy site blocks, saves a backup under `/var/backups/linspace/`, publishes an
-immutable release under `/srv/linspace/releases/`, switches the `current`
-symlink, installs stashd, validates and reloads services, and checks HTTPS.
-An existing stash token and all channel contents are preserved. New tokens are
-saved to `/etc/linspace/stash-token` with mode 0600; they are never included in
-this bundle or printed by the installer.
-
-Useful commands from this directory:
+Omit sudo as root. Deployment backs up managed state, publishes an immutable release, switches `/srv/linspace/current`, activates Caddy/Stash, and checks HTTPS. Existing tokens and channel data are preserved. New tokens are stored at `/etc/linspace/stash-token`, mode 0600, and never included here.
 
 ```sh
-python3 verify.py                       # passive public HTTPS checks
-python3 verify.py --local               # loopback HTTPS checks
-sudo bash linspace --rotate-token       # explicit token rotation
+python3 verify.py --local
+sudo bash linspace --rotate-token
 sudo bash linspace --rollback /var/backups/linspace/BACKUP_NAME
 ```
 
-A failure during managed-file/service installation triggers an attempted restore;
-if recovery fails, the backup path is retained for manual repair. Missing
-packages or a newly created service account are not uninstalled during restore.
-If installation succeeds but public HTTPS is not ready, the installation is
-retained: fix DNS/firewall/certificate issuance and rerun verification.
-Rollback also restores the previous token and code, but leaves stash channel
-data unchanged. Reconfigure and rebuild in the source repository to change the
-domain, homepage, public key, or shared settings; rollback does not edit the
-source checkout's local configuration. Keep extra files, editor backups, and
-logs outside this extracted directory: the manifest rejects unlisted files.
-Do not edit built bundles.
+Loopback verification retains certificate validation but does not prove public access. Managed installation failure attempts restoration; a final HTTPS failure retains the installed state for diagnosis. Rollback restores the old token/code/release but not channel contents or source configuration. Added packages/accounts remain installed.
 
-An internal-test release is marked in `release.json` and requires an explicit
-`--internal-test` deployment flag. On an internal host with a valid certificate,
-`sudo bash linspace --internal-test --local` runs loopback HTTPS verification.
-That flag does not waive production filing requirements or TLS validation.
+Reconfigure and rebuild in the source repository to change domains or public files. Keep logs and extra files outside this extracted directory: the manifest rejects unlisted or changed files. Backups remain under `/var/backups/linspace/` for deliberate cleanup.
+
+A release marked as a test build requires `--internal-test`. Add `--local` for loopback verification; TLS validation remains enabled.

@@ -1,0 +1,15 @@
+{
+  "codex_cli_version": "0.153.4",
+  "source_command": "codex debug models --bundled",
+  "source_sha256": "32bdd1fe3ffd82df3d03c6c9b9d9068087cd9640ded4377f604586d7a743749b",
+  "models": [
+    "gpt-6-astra",
+    "gpt-5.6-sol"
+  ],
+  "overrides": {
+    "context_window": 1000000,
+    "max_context_window": 1050000,
+    "effective_context_window_percent": 100
+  },
+  "catalog_sha256": "eff3afcad638d18ac13b0ee76b23edec3c3c210ff1e7e3ec4f3446a9b521f085"
+}

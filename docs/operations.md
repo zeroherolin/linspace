@@ -1,21 +1,41 @@
 # Operations
 
-## Update or change settings
+Run commands from the web-server checkout. Keep `local/site.json`, the public key and custom client configuration files in ignored `local/` storage.
 
-Keep `local/site.json`, your copied public key, and any custom public Claude settings in the ignored `local/` directory. From the repository root, inspect `git status --short`, resolve source edits or conflicting untracked files, update code with `git pull --ff-only`, then run `sudo ./linspace deploy`. When using a non-default profile, pass the same `--config` path to every configuration-dependent command. Deployment always rebuilds for the current configuration, preserves channel data, and keeps the token unless `--rotate-token` is explicitly provided.
+## Update and reconfigure
 
-Edit site values with `./linspace configure`. A new domain must already be resolved to this host and filed before it replaces the configured domain. All generated URLs, including downloaded client scripts, follow the new configuration. Existing clients with old URLs must switch to the new hostname.
+```sh
+git status --short
+git pull --ff-only
+sudo ./linspace deploy
+```
 
-## Stash token
+Resolve source changes before pulling. Python 3.9/3.10 requires `python3-tomli`. Change settings with `./linspace configure`, then redeploy. Use the same `--config` path for a named profile. Re-save profiles containing literal `~/` input paths as the intended account before deploying with sudo.
 
-On a new deployment, read `/etc/linspace/stash-token` as root and store its value in a password manager. Caddy's fragment contains only the bcrypt hash. Never put the token into the public release, repository, or a stash channel.
+A new domain needs DNS and filing first. Changing `ssh_public_key_name` publishes the key at the new filename and removes the old URL. Clients must update their URLs and explicitly reapply shared configuration. Installations do not synchronize tokens, content or settings.
+
+## Shared client configuration
+
+Select the intended `claude_settings_file` and `codex_config_file` in the site profile. To use bundled presets, select `config/claude/settings.json` and `config/codex/config.toml`. If published settings differ from the expected content, compare the selected input and active release.
+
+Refresh Codex model metadata through the [catalog procedure](../config/codex/README.md#refresh-and-validate). Clients save `/codex/models_1m` beside `config.toml` as `models-1m.json`, then restart Codex. Configuration downloads respect `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
+
+## Token
+
+Read the token and store it in a password manager:
+
+```sh
+sudo cat /etc/linspace/stash-token
+```
+
+To issue a replacement:
 
 ```sh
 sudo ./linspace deploy --rotate-token
 sudo cat /etc/linspace/stash-token
 ```
 
-An adopted installation keeps its previous hash. If its plaintext token is not present at the new standard path, use the previous password-manager copy or rotate explicitly. Suspected exposure calls for rotation and deliberate review of the public channel contents.
+All writers and clear clients need the replacement token. An adopted installation may have only a bcrypt hash; use its existing token or rotate to create the standard token file.
 
 ## Diagnostics
 
@@ -23,24 +43,22 @@ An adopted installation keeps its previous hash. If its plaintext token is not p
 ./linspace verify
 ./linspace verify --local
 sudo systemctl status caddy stashd.socket stashd.service
-sudo journalctl -u caddy -n 100 --no-pager
-sudo journalctl -u stashd.service -u stashd.socket -n 100 --no-pager
+sudo journalctl -u caddy -n 80 --no-pager
+sudo journalctl -u stashd.service -u stashd.socket -n 80 --no-pager
+```
+
+Verification leaves Stash data unchanged. `--local` checks loopback using the configured hostname and TLS certificate; it does not establish public access. The direct writer check should return 405:
+
+```sh
 sudo curl -sS --unix-socket /run/stashd/stashd.sock -o /dev/null -w '%{http_code}\n' http://stashd/
 ```
 
-The direct writer GET check returns 405. Passive verification never modifies channels: authentication is checked with PUT to the clear path, which the writer cannot execute as a clear operation.
-
 ## Backups and cleanup
 
-[Deployment](deployment.md) lists managed locations and rollback semantics. Backups and public releases are retained automatically; no scheduled pruning is installed. Before removing an old release, check `/srv/linspace/current` and the `current` entries in retained backup `snapshot.json` files. Keep any release needed for a future rollback. Keep Caddy certificate storage persistent; it is managed separately by Caddy.
+Use [deployment recovery](deployment.md#failure-and-recovery) for rollback. Releases and backups are retained without automatic pruning. Keep the active release and every release referenced by a retained backup's `snapshot.json`. Preserve Caddy certificate storage.
 
-Channel files are `/var/lib/stashd/download0` through `download7`. An administrator can remove a particular channel file to make its URL return 404; no service restart is needed. Uploading an empty file instead leaves a populated, zero-byte resource. The authenticated client clear command removes all eight channels; it is not part of deployment verification.
+Stash files are `/var/lib/stashd/download0` through `download7`. Removing a file makes that channel return 404 without restarting services. Uploading an empty file instead returns 200 with an empty body. The public clear client removes all eight channels.
 
-## Remove the managed site
+## Remove the site
 
-For a deliberate uninstall, first save any required tokens, channel data, and backups. Check how the main Caddyfile includes the site:
-
-- If it contains the explicit `import /etc/caddy/sites-enabled/linspace.caddy` line, remove only that line and the managed site file.
-- If a shared wildcard import includes the managed file, remove only `/etc/caddy/sites-enabled/linspace.caddy`. Keep the wildcard import so other sites remain configured.
-
-Validate the resulting Caddy configuration and reload it before removing public files. Then disable/stop `stashd.socket` and `stashd.service` and remove only this installation's files and account as appropriate. Preserve unrelated sites and certificate storage. The tool has no automatic destructive uninstall command.
+Save required tokens, channel data and backups. Remove the managed site file and its explicit import, or only the file when a shared wildcard import covers it. Validate and reload Caddy, then stop/disable `stashd.socket` and `stashd.service`. Remove only this installation's files/account, preserving unrelated sites and certificate storage. There is no automatic uninstall command.

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,22 +18,33 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
             root = Path(tmp)
             key = root / 'id_ed25519'
-            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)], check=True)
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'test-key', '-f', str(key)], check=True)
             config = root / 'site.json'
-            config.write_text(json.dumps({'domain': 'custom.example.test', 'site_name': 'Site <test>', 'icp_number': '', 'ssh_public_key_file': str(key) + '.pub', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            config.write_text(json.dumps({'domain': 'custom.example.test', 'site_name': 'Site <test>', 'icp_number': '', 'ssh_public_key_file': str(key) + '.pub', 'ssh_public_key_name': 'team.pub', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
             release = build.build(config, root / 'dist', internal=True)
             meta, identifier = deploy.checked_release(release)
             self.assertTrue(meta['ssh_enabled'])
             self.assertTrue(meta['internal_test'])
-            self.assertEqual((release / 'site/ssh/key.pub').read_bytes(), Path(str(key) + '.pub').read_bytes())
+            self.assertEqual(meta['ssh_public_key_name'], 'team.pub')
+            self.assertEqual((release / 'site/ssh/team.pub').read_bytes(), Path(str(key) + '.pub').read_bytes())
+            self.assertFalse((release / 'site/ssh/key.pub').exists())
             for path in release.rglob('*'):
                 if path.is_file() and path.suffix != '.dat':
-                    self.assertNotIn('linspace.xyz', path.read_text())
                     self.assertNotIn('@@DOMAIN@@', path.read_text())
             self.assertIn('https://custom.example.test', (release / 'site/mihomo/install').read_text())
             self.assertIn('https://custom.example.test/stash', (release / 'site/stash/upload7').read_text())
             self.assertIn('Site &lt;test&gt;', (release / 'site/index.html').read_text())
             self.assertIn('custom.example.test {', (release / 'config/Caddyfile').read_text())
+            self.assertEqual(set(re.findall(r'/ssh/[a-zA-Z0-9._-]+', (release / 'config/Caddyfile').read_text())), {'/ssh/team.pub'})
+            self.assertIn('@codex path /codex/install', (release / 'config/Caddyfile').read_text())
+            self.assertIn('redir https://chatgpt.com/codex/install.sh 302', (release / 'config/Caddyfile').read_text())
+            self.assertIn('/codex/config', (release / 'config/Caddyfile').read_text())
+            self.assertEqual((release / 'site/codex/config').read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
+            self.assertEqual(build.siteconfig.tomllib.loads((release / 'site/codex/config').read_text())['model_catalog_json'], 'models-1m.json')
+            self.assertIn('/codex/models_1m', (release / 'config/Caddyfile').read_text())
+            models = release / 'site/codex/models_1m'
+            self.assertEqual(models.read_bytes(), (ROOT / 'config/codex/models-1m.json').read_bytes())
+            self.assertEqual({m['slug']: m['context_window'] for m in json.loads(models.read_text())['models']}, {'gpt-6-astra': 1000000, 'gpt-5.6-sol': 1000000})
             self.assertNotIn('ssh_public_key_file', (release / 'release.json').read_text())
             sha = hashlib.sha256((root / 'dist/linspace-site.tar.gz').read_bytes()).hexdigest()
             release = build.build(config, root / 'dist', internal=True)
@@ -50,7 +62,7 @@ class BuildTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 deploy.checked_release(release)
             extra.unlink()
-            (release / 'site/claude/config').write_text('{"tampered":true}')
+            (release / 'site/codex/models_1m').write_text('{"models":[]}')
             with self.assertRaises(ValueError):
                 deploy.checked_release(release)
 
@@ -58,8 +70,24 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
             root = Path(tmp)
             config = root / 'site.json'
-            config.write_text(json.dumps({'domain': 'second.example.test', 'site_name': 'Second site', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            config.write_text(json.dumps({'domain': 'second.example.test', 'site_name': 'Second site', 'icp_number': '', 'ssh_public_key_file': '', 'ssh_public_key_name': 'unused.pub', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
             release = build.build(config, root / 'dist', internal=True)
-            self.assertFalse((release / 'site/ssh/key.pub').exists())
-            self.assertNotIn('/ssh/key.pub', (release / 'config/Caddyfile').read_text())
+            self.assertFalse((release / 'site/ssh').exists())
+            self.assertNotIn('/ssh/', (release / 'config/Caddyfile').read_text())
             self.assertFalse(json.loads((release / 'release.json').read_text())['ssh_enabled'])
+
+    def test_custom_client_configs_are_published_without_private_input_paths(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            claude = root / 'private-location-claude.json'
+            claude.write_text('{"language":"English"}')
+            codex = root / 'private-location-codex.toml'
+            codex.write_text('# Keep this comment\nmodel_reasoning_effort = "high"\n')
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'clients.example.test', 'site_name': 'Clients', 'icp_number': '', 'claude_settings_file': str(claude), 'codex_config_file': str(codex)}))
+            release = build.build(config, root / 'dist', internal=True)
+            self.assertEqual(json.loads((release / 'site/claude/config').read_text()), {'language': 'English'})
+            self.assertEqual((release / 'site/codex/config').read_bytes(), codex.read_bytes())
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix != '.dat':
+                    self.assertNotIn('private-location-', path.read_text())

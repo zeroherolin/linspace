@@ -3,14 +3,13 @@
     header X-Content-Type-Options "nosniff"
     import /etc/caddy/linspace.d/stash.caddy
 
-    @@SSH_ALIAS@@
     @home path /
     handle @home {
         header Content-Type "text/html; charset=utf-8"
         header Cache-Control "no-store"
         file_server
     }
-    @text path /mihomo/install /mihomo/sub /mihomo/restart /claude/config@@SSH_ROUTE@@
+    @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/sub /mihomo/restart /claude/config /codex/config /codex/models_1m
     handle @text {
         header Content-Type "text/plain; charset=utf-8"
         header Cache-Control "no-store"
@@ -25,6 +24,10 @@
     @claude path /claude/install
     handle @claude {
         redir https://claude.ai/install.sh 302
+    }
+    @codex path /codex/install
+    handle @codex {
+        redir https://chatgpt.com/codex/install.sh 302
     }
     handle {
         respond "Not found" 404

@@ -3,5 +3,7 @@
   "site_name": "",
   "icp_number": "",
   "ssh_public_key_file": "",
-  "claude_settings_file": "config/claude/settings.json"
+  "ssh_public_key_name": "key.pub",
+  "claude_settings_file": "config/claude/settings.json",
+  "codex_config_file": "config/codex/config.toml"
 }

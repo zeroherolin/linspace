@@ -1,27 +1,37 @@
 # Contributing
 
-Run `make check` before review. It builds with isolated test settings and checks source syntax, rendered scripts, links, release integrity, configuration validation, Caddy-file integration/rollback helpers, and the stash writer protocol. No personal configuration or root privileges are needed. The stash protocol tests bind a temporary Unix socket; the test environment must allow that local IPC operation. Python 3.9+, Bash, Make, and OpenSSH client tools are the local dependencies.
+## Local checks
 
-## Source layout
+Use Python 3.9+, Bash and OpenSSH client tools. Python 3.11+ includes the TOML parser. Older versions need `python3-tomli` on Debian/Ubuntu, or `python -m pip install -r requirements.txt` inside a virtual environment.
 
-Edit `src/` for runtime behavior, `config/` for schema/defaults/templates, `scripts/` for tooling, and `docs/` for guides. Never edit generated `dist/` files. The Markdown files under `packaging/` are release-readme templates; edit them there and rebuild to update extracted bundles and archives together. Deployment-specific values belong in ignored `local/` files.
+```sh
+./linspace check
+# With Make and a selected interpreter:
+make check PYTHON=python3.12
+```
 
-Shell templates insert whole source files with `@@include:src/component/file@@`. `@@DOMAIN@@` and `@@GEO_SHA@@` are substituted at build time. Keep heredoc delimiters out of included files, and ensure newly added public endpoints have an explicit Caddy route. Extend `scripts/verify.py` with passive checks for new endpoints.
+Checks need no personal configuration or root access. The Stash tests require local Unix sockets. CI runs on Python 3.9 and 3.12. See [Testing](docs/testing.md) for coverage and live release checks.
 
-The hostname is configuration data, not a source-code constant. Tests build two different domains and check generated URLs, optional key routes, HTML escaping, checksum rejection, and deterministic artifacts. Do not add a personal key, credential, fixed personal domain, or permissive personal Claude settings to defaults.
+## Source conventions
 
-## Versions and data
+- `config/`: public presets, schema and templates.
+- `src/`: runtime implementation.
+- `scripts/`: configuration, build, deployment and checks.
+- `docs/`: user and maintainer guides.
+- `packaging/`: bundle README templates.
 
-The engine remains pinned to mihomo v1.19.27. An upgrade requires reviewing the engine's architecture checksums and all runtime version expectations in `src/mihomo/install.sh.in`, `src/mihomo/process.py`, and `src/mihomo/sub.py`. GeoIP is identified by `assets/manifest.json`; its hash is injected into the scripts and Caddy asset path. Review upstream data provenance/license when replacing the snapshot.
+Edit source files, not generated `dist/`. Keep deployment-specific values in ignored `local/`.
 
-Build archives have stable ordering, ownership, modes, and timestamps. Within the same Python/zlib runtime, identical inputs generate identical archives. Different compression-library versions can produce different archive hashes for identical extracted files; always transfer the checksum for the actual archive.
+Use the feature order **SSH → Mihomo → Claude Code → Codex → Stash** throughout commands and documentation. New endpoints need an explicit Caddy route, passive verification, behavior tests and a usage guide. Shared presets must not contain credentials, project trust, UI history or machine-specific paths. Companion client files use relative paths.
 
-## Linux validation
+Documentation describes the current project and reproducible procedures. Keep private hostnames, personal endpoint names, development-session narratives and one-off deployment results outside the repository. Use generic examples; preserve required attribution and authoritative upstream references.
 
-Local tests do not prove actual systemd isolation, certificate issuance, or mihomo behavior. Test deployment, repeat deployment, and recovery on a disposable Debian/Ubuntu systemd host before shipping deployment changes. Verify a non-default domain and ensure unrelated Caddy sites survive. Client changes need a target with real mihomo listeners and valid private nodes; keep test credentials outside Git and logs intended for sharing.
+Templates expand `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When adding configuration fields, test both new and existing profiles. Check Markdown links, heading anchors and command examples.
 
-The production README assumes DNS and filing are complete. Maintainer-only pre-filing and loopback workflows are documented separately in [internal testing](docs/internal/testing.md). The historical environment record is in [the internal validation log](docs/internal/validation-2026-09-09.md).
+## Versions and release validation
 
-The configurable deployer has a separate [validation record](docs/internal/deployment-v2-validation.md). Validation logs describe the revisions and environments tested at that time; use the current guides for operating commands.
+Mihomo is pinned to v1.19.27. Update engine checksums and runtime expectations in install/process/sub together. GeoIP is defined in `assets/manifest.json`; review provenance and licensing before replacing it. Claude Code and Codex installer routes follow official upstream URLs.
 
-For documentation changes, check heading anchors and fenced command examples as well as local file links. The current `make check` link check covers the main guides and asset readme, checks file existence only, and skips packaging Markdown and heading anchors.
+Refresh the Codex catalog with `python3 scripts/codex_catalog.py --refresh` using a reviewed official CLI. Review both model entries and their [source record](config/codex/README.md). Normal builds require neither Codex nor network access.
+
+Identical inputs produce identical archives within the same Python/zlib runtime. Distribute the checksum for the actual archive. Complete the [release checks](docs/testing.md#release-validation) before publishing; local tests do not establish public TLS, authentication or provider capacity.

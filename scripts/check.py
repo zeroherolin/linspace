@@ -20,7 +20,7 @@ def main():
     for path in [ROOT / 'linspace', *ROOT.rglob('*.sh')]:
         if 'dist' not in path.parts and 'local' not in path.parts:
             subprocess.run(['bash', '-n', path], check=True)
-    for page in [ROOT / 'README.md', ROOT / 'CONTRIBUTING.md', *list((ROOT / 'docs').rglob('*.md')), ROOT / 'assets/README.md']:
+    for page in [*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'assets').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')]:
         for link in re.findall(r'\[[^\]]*\]\(([^)]+)\)', page.read_text()):
             link = link.split('#', 1)[0]
             if link and not re.match(r'[a-z]+:', link):

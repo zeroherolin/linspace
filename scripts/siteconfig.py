@@ -7,9 +7,18 @@ import re
 import struct
 import subprocess
 from pathlib import Path
+import codex_catalog
+
+try:
+    import tomllib
+except ImportError:  # Python 3.9/3.10 on older deployment hosts.
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
 
 ROOT = Path(__file__).resolve().parents[1]
-FIELDS = {'domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'claude_settings_file'}
+FIELDS = ('domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file')
 
 
 def domain_name(value, internal=False):
@@ -31,6 +40,12 @@ def domain_name(value, internal=False):
     if reserved and not internal:
         raise ValueError('Replace the example domain with your resolved, ICP-filed domain')
     return domain
+
+
+def public_key_name(value):
+    if not isinstance(value, str) or len(value) > 128 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.pub', value):
+        raise ValueError('ssh_public_key_name must be a filename such as key.pub or team.pub: ASCII letters, digits, dots, underscores and hyphens; at most 128 characters')
+    return value
 
 
 def public_key(data):
@@ -56,10 +71,11 @@ def public_key(data):
 def load(path, internal=False, root=ROOT):
     path = Path(path)
     raw = json.loads(path.read_text(encoding='utf-8'))
-    if not isinstance(raw, dict) or set(raw) - FIELDS:
+    if not isinstance(raw, dict) or set(raw) - set(FIELDS):
         raise ValueError('Unknown configuration fields; use config/site.example.json as the schema')
     config = dict(raw)
     config['domain'] = domain_name(raw.get('domain', ''), internal)
+    config['ssh_public_key_name'] = public_key_name(raw.get('ssh_public_key_name', 'key.pub'))
     for key in ('site_name', 'icp_number'):
         value = raw.get(key, '')
         if not isinstance(value, str) or len(value) > 200 or any(ord(c) < 32 for c in value):
@@ -72,11 +88,13 @@ def load(path, internal=False, root=ROOT):
         config[key] = value
     if not internal and not re.search(r'ICP.*\d.*号', config['icp_number'], re.I):
         raise ValueError('icp_number must contain your complete issued ICP filing number, including its site suffix')
-    for key, fallback in [('ssh_public_key_file', ''), ('claude_settings_file', 'config/claude/settings.json')]:
+    for key, fallback in [('ssh_public_key_file', ''), ('claude_settings_file', 'config/claude/settings.json'), ('codex_config_file', 'config/codex/config.toml')]:
         value = raw.get(key, fallback)
         if not isinstance(value, str):
             raise ValueError(f'{key} must be a file path')
-        config[key] = value
+        # Freeze user-home inputs when configure saves the profile, before sudo
+        # can resolve the same spelling against a different account's home.
+        config[key] = str(Path(value).expanduser()) if value.startswith('~') else value
     key_data = None
     if config['ssh_public_key_file']:
         p = Path(config['ssh_public_key_file']).expanduser()
@@ -87,7 +105,19 @@ def load(path, internal=False, root=ROOT):
     settings = json.loads((p if p.is_absolute() else root / p).read_text())
     if not isinstance(settings, dict):
         raise ValueError('Claude settings must be a JSON object')
-    return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode()
+    if not config['codex_config_file']:
+        raise ValueError('codex_config_file must point to a TOML configuration file')
+    p = Path(config['codex_config_file']).expanduser()
+    codex = (p if p.is_absolute() else root / p).read_bytes()
+    if tomllib is None:
+        raise ValueError('TOML validation needs Python 3.11+ or tomli: install python3-tomli on Debian/Ubuntu, or requirements.txt in a Python virtual environment')
+    try:
+        codex_settings = tomllib.loads(codex.decode('utf-8'))
+    except (UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError('Codex configuration must be valid UTF-8 TOML') from exc
+    _, catalog = codex_catalog.load_catalog()
+    codex_catalog.validate_settings(codex_settings, catalog)
+    return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode(), codex
 
 
 def page(config):

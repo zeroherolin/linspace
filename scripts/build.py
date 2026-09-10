@@ -9,6 +9,7 @@ import shutil
 import tarfile
 from pathlib import Path
 import siteconfig
+import codex_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDE = re.compile(r'^@@include:([^\n]+)@@\n', re.M)
@@ -61,7 +62,8 @@ def archive(directory):
 
 
 def build(config_path, output=None, internal=False):
-    config, key, settings = siteconfig.load(config_path, internal)
+    config, key, claude_settings, codex_config = siteconfig.load(config_path, internal)
+    codex_models, _ = codex_catalog.load_catalog(ROOT)
     output = Path(output or ROOT / 'dist').absolute()
     if output.is_symlink() or output == ROOT or not (output.name == 'dist' or output.name.startswith('linspace-build-')):
         raise ValueError('Build output must be a dist directory or a linspace-build-* temporary directory, never a symlink')
@@ -76,7 +78,8 @@ def build(config_path, output=None, internal=False):
     geo = gzip.decompress(compressed)
     if digest(geo) != asset['sha256'] or len(geo) != asset['size']:
         raise ValueError('GeoIP snapshot checksum mismatch')
-    values = {'DOMAIN': config['domain'], 'GEO_SHA': asset['sha256'], 'SSH_ROUTE': ' /ssh/key.pub' if key else '', 'SSH_ALIAS': 'rewrite /ssh/linz.pub /ssh/key.pub' if key else ''}
+    key_name = config['ssh_public_key_name']
+    values = {'DOMAIN': config['domain'], 'GEO_SHA': asset['sha256'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else ''}
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
         'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/stash/clear': 'src/stash/clear.sh',
@@ -88,8 +91,10 @@ def build(config_path, output=None, internal=False):
     for channel in range(8):
         write(release, f'site/stash/upload{channel}', render('src/stash/upload.sh.in', values).replace('__CHANNEL__', str(channel)))
     if key:
-        write(release, 'site/ssh/key.pub', key)
-    write(release, 'site/claude/config', settings)
+        write(release, f'site/ssh/{key_name}', key)
+    write(release, 'site/claude/config', claude_settings)
+    write(release, 'site/codex/config', codex_config)
+    write(release, 'site/codex/models_1m', codex_models)
     write(release, 'site/index.html', siteconfig.page(config))
     write(release, f"site/mihomo/assets/geoip-{asset['sha256']}.dat", geo)
     for name in ('deploy.py', 'verify.py'):
@@ -98,7 +103,7 @@ def build(config_path, output=None, internal=False):
     write(release, 'README.md', (ROOT / 'packaging/site-README.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
-    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'internal_test': internal, 'geoip_sha256': asset['sha256']}, ensure_ascii=False, indent=2) + '\n')
+    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'internal_test': internal, 'geoip_sha256': asset['sha256']}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')

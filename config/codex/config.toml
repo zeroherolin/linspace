@@ -1,0 +1,44 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+# Model and companion catalog (relative to this file).
+model = "gpt-6-astra"
+model_provider = "openai_next"
+model_catalog_json = "models-1m.json"
+
+# The catalog exposes 1M usable tokens; compact at 900K to retain headroom.
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+model_auto_compact_token_limit_scope = "total"
+
+# User preferences override the model catalog's defaults.
+model_reasoning_effort = "xhigh"
+model_reasoning_summary = "auto"
+model_verbosity = "low"
+web_search = "live"
+
+# Command approval and sandbox policy.
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+sandbox_mode = "danger-full-access"
+
+[model_providers.openai_next]
+name = "OpenAI Next (HTTPS)"
+base_url = "https://us.api.openai-next.com/v1"
+wire_api = "responses"
+# Credentials stay in the client's normal auth storage, never in this file.
+requires_openai_auth = true
+supports_websockets = false
+
+[tui]
+status_line = [
+  "current-dir",
+  "git-branch",
+  "model-with-reasoning",
+  "approval-mode",
+  "context-used",
+  "context-window-size",
+  "five-hour-limit",
+  "weekly-limit",
+  "fast-mode",
+]
+status_line_use_colors = true

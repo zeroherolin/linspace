@@ -1,26 +1,23 @@
-# Import the SSH public key
+# SSH public key
 
-This endpoint exists only when the site operator configured a public key. Ask the operator for the base URL and the expected SHA256 fingerprint through a trusted channel. The operator can run `./linspace urls` from the repository checkout; clients do not need to clone the repository.
+Run as the target account that should accept the key. You need Bash, curl, OpenSSH client tools and an SSH server allowing public-key authentication. Ask the operator for the public key URL and expected SHA256 fingerprint through a trusted channel.
 
-Run the following commands in Bash as the account that should accept the key on the target host. Root is needed only when configuring the root account. The SSH server must allow public-key authentication, and the target needs curl and OpenSSH client tools.
+The published name is configured by `ssh_public_key_name` (default `key.pub`). The examples below use `team.pub`; replace the domain and filename with the URL from `./linspace urls`. Names must start with an ASCII letter or digit, use only letters, digits, dots, underscores or hyphens, end in `.pub`, and be at most 128 characters. Paths are not accepted. An empty `ssh_public_key_file` disables publishing.
 
-## Download, verify, and import
+## Verify and import
 
-Replace the domain and `EXPECTED_FINGERPRINT` below. The procedure downloads once, checks that exact file, and then appends it. A download or fingerprint failure leaves `authorized_keys` unchanged.
+Replace the domain and fingerprint. Download and verification failures leave `authorized_keys` unchanged.
 
 ```bash
 (
     set -euo pipefail
-    EXPECTED_FINGERPRINT='SHA256:REPLACE_WITH_OPERATOR_FINGERPRINT'
+    expected='SHA256:REPLACE_WITH_OPERATOR_FINGERPRINT'
     key_file=$(mktemp)
     trap 'rm -f "$key_file"' EXIT
     curl -q -fsSL --proto '=https' --proto-redir '=https' \
-        https://your-domain.cn/ssh/key.pub -o "$key_file"
+        https://your-domain.cn/ssh/team.pub -o "$key_file"
     fingerprint=$(ssh-keygen -lf "$key_file" -E sha256 | awk '{print $2}')
-    if [[ "$fingerprint" != "$EXPECTED_FINGERPRINT" ]]; then
-        printf 'Fingerprint mismatch: %s\n' "$fingerprint" >&2
-        exit 1
-    fi
+    [[ "$fingerprint" == "$expected" ]] || { echo 'Fingerprint mismatch' >&2; exit 1; }
     install -d -m 700 ~/.ssh
     touch ~/.ssh/authorized_keys
     chmod 600 ~/.ssh/authorized_keys
@@ -28,20 +25,18 @@ Replace the domain and `EXPECTED_FINGERPRINT` below. The procedure downloads onc
 )
 ```
 
-The leading newline prevents a key from being joined to an existing unterminated line. This is an append operation, not an idempotent key manager: run it once per new key. Review existing matching entries and any key restrictions before adding or replacing them.
-
-On the web host, the operator can obtain the published fingerprint with:
+This appends once; review existing entries and restrictions before repeating it. The endpoint exists only when the operator configured a public key. The operator can obtain the published fingerprint on the web host with:
 
 ```sh
-ssh-keygen -lf /srv/linspace/current/ssh/key.pub -E sha256
+ssh-keygen -lf /srv/linspace/current/ssh/team.pub -E sha256
 ```
 
-## Test the login
+## Test
 
-On the client holding the matching private key, replace the path, account, and host:
+On the client holding the matching private key:
 
 ```sh
 ssh -i /path/to/private_key user@server
 ```
 
-The private key stays on that client. Updating the public key on the website does not update any account's `authorized_keys`. Deployment itself does not grant SSH access to the web host.
+The private key stays on that client. Updating the key does not update existing `authorized_keys` files. Changing the published filename takes effect after deployment; clients must use the new URL.

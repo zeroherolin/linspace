@@ -18,13 +18,17 @@ DEFAULT = ROOT / 'local/site.json'
 
 
 def configure(args):
-    current = json.loads(args.config.read_text()) if args.config.exists() else json.loads((ROOT / 'config/site.example.json').read_text())
-    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (empty to disable key publishing)'), ('claude_settings_file', 'Public Claude settings JSON file')]
+    current = json.loads((ROOT / 'config/site.example.json').read_text())
+    if args.config.exists():
+        current.update(json.loads(args.config.read_text()))
+    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (empty to disable key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
     for key, prompt in questions:
         supplied = getattr(args, key, None)
         if supplied is not None:
             current[key] = supplied
         elif not args.non_interactive:
+            if key == 'ssh_public_key_name' and not current.get('ssh_public_key_file'):
+                continue
             previous = current.get(key, '')
             entered = input(f'{prompt}' + (f' [{previous}]' if previous else '') + ': ').strip()
             current[key] = '' if key == 'ssh_public_key_file' and entered == '-' else entered or previous
@@ -32,13 +36,13 @@ def configure(args):
     pending = args.config.with_name('.site-pending.json')
     try:
         pending.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n')
-        config, key_data, settings = siteconfig.load(pending, args.internal_test)
+        config, key_data, _, _ = siteconfig.load(pending, args.internal_test)
         if key_data:
             public = ROOT / 'local/ssh.pub'
             public.parent.mkdir(parents=True, exist_ok=True)
             public.write_bytes(key_data)
             config['ssh_public_key_file'] = 'local/ssh.pub'
-        # Retain chosen settings path; the neutral default contains no personal preferences.
+        # Retain operator-selected public configuration paths.
         pending.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n')
         pending.chmod(0o600)
         os.replace(pending, args.config)
@@ -58,7 +62,7 @@ def main():
         p.add_argument('--config', type=Path, default=DEFAULT)
         p.add_argument('--internal-test', action='store_true', help='internal testing only; allow reserved domains and an empty filing number')
         if name == 'configure':
-            for field in sorted(siteconfig.FIELDS):
+            for field in siteconfig.FIELDS:
                 p.add_argument('--' + field.replace('_', '-'))
             p.add_argument('--non-interactive', action='store_true')
         if name == 'deploy':
@@ -88,14 +92,14 @@ def main():
                 flags = ['--' + name.replace('_', '-') for name in ('dry_run', 'rotate_token', 'adopt_existing', 'skip_verify', 'internal_test', 'local') if getattr(args, name)]
                 deploy.main(['--release', str(release), *flags])
         else:
-            config, key, _ = siteconfig.load(args.config, args.internal_test)
+            config, key, _, _ = siteconfig.load(args.config, args.internal_test)
             if args.command == 'verify':
                 asset = json.loads((ROOT / 'assets/manifest.json').read_text())['geoip']
-                verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'geoip_sha256': asset['sha256']}, args.local)
+                verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name'], 'geoip_sha256': asset['sha256']}, args.local)
             else:
-                paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'stash/upload0', 'stash/download0', 'stash/clear']
+                paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'stash/upload0', 'stash/download0', 'stash/clear']
                 if key:
-                    paths.insert(1, 'ssh/key.pub')
+                    paths.insert(1, 'ssh/' + config['ssh_public_key_name'])
                 for path in paths:
                     print(f'https://{config["domain"]}/{path}')
 
