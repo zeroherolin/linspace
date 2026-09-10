@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+@@include:src/common/ui.sh@@
 # Save an API token locally; no credentials are sent to the site.
 set +x
 set -Eeuo pipefail
@@ -6,7 +7,7 @@ set -Eeuo pipefail
 linspace_auth_tmp=''
 linspace_auth_pending_backup=''
 
-fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+fail() { linspace_log ERROR "$*"; exit 1; }
 usage() {
     cat <<'USAGE'
 Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE_URL]
@@ -84,7 +85,7 @@ LINSPACE_CODEX_PROVIDER_PY
             chmod 600 "$auth_file"
             rm -f -- "$linspace_auth_tmp"
             linspace_auth_tmp=''
-            printf 'Credentials already saved in %s\n' "$auth_file"
+            linspace_log OK "Credentials already saved in $auth_file"
             return 0
         fi
         linspace_auth_pending_backup=$(mktemp "$config_dir/auth.json.backup.XXXXXX")
@@ -94,9 +95,9 @@ LINSPACE_CODEX_PROVIDER_PY
     fi
     mv -f -- "$linspace_auth_tmp" "$auth_file"
     linspace_auth_tmp=''
-    [[ -z $backup ]] || printf 'Previous credentials: %s\n' "$backup"
-    printf 'Saved API credentials to %s (mode 600).\n' "$auth_file"
-    printf 'Token validity is checked when Codex connects to your configured provider.\n'
+    [[ -z $backup ]] || linspace_log INFO "Previous credentials: $backup"
+    linspace_log OK "Saved API credentials to $auth_file (mode 600)."
+    linspace_log INFO 'Token validity is checked when Codex connects to your provider.'
 }
 
 @@include:src/common/download.sh.in@@

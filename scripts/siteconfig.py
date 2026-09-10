@@ -5,6 +5,7 @@ import ipaddress
 import json
 import re
 import struct
+from urllib.parse import urlsplit
 import subprocess
 from pathlib import Path
 import codex_catalog
@@ -63,6 +64,28 @@ def public_key(data):
     return normalized
 
 
+def check_public_settings(value, path=()):
+    """Reject common literal credential fields before they become public files."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = key.lower().replace('-', '_')
+            if path and path[-1] == 'env_http_headers':
+                continue  # Values here name environment variables, not header contents.
+            secret = normalized in {'api_key','auth_token','access_token','refresh_token','bearer_token','experimental_bearer_token','password','client_secret','authorization','proxy_authorization','x_api_key'} or normalized.endswith(('_api_key','_auth_token','_oauth_token','_access_token','_refresh_token','_client_secret'))
+            if secret and item not in ('', None, False):
+                raise ValueError('Public client settings contain a credential field: ' + '.'.join((*path, key)))
+            check_public_settings(item, (*path, key))
+    elif isinstance(value, list):
+        for item in value:
+            check_public_settings(item, path)
+    elif isinstance(value, str) and value.startswith(('http://','https://')):
+        try:
+            if urlsplit(value).username is not None:
+                raise ValueError('Public client settings contain credentials in a URL: ' + '.'.join(path))
+        except ValueError:
+            raise ValueError('Public client settings contain an invalid or credential-bearing URL: ' + '.'.join(path)) from None
+
+
 def load(path, internal=False, root=ROOT):
     path = Path(path)
     raw = json.loads(path.read_text(encoding='utf-8'))
@@ -107,6 +130,7 @@ def load(path, internal=False, root=ROOT):
     settings = json.loads((p if p.is_absolute() else root / p).read_text())
     if not isinstance(settings, dict):
         raise ValueError('Claude settings must be a JSON object')
+    check_public_settings(settings)
     if not config['codex_config_file']:
         raise ValueError('codex_config_file must point to a TOML configuration file')
     p = Path(config['codex_config_file']).expanduser()
@@ -117,6 +141,7 @@ def load(path, internal=False, root=ROOT):
         codex_settings = tomllib.loads(codex.decode('utf-8'))
     except (UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise ValueError('Codex configuration must be valid UTF-8 TOML') from exc
+    check_public_settings(codex_settings)
     _, catalog = codex_catalog.load_catalog()
     codex_catalog.validate_settings(codex_settings, catalog)
     return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode(), codex

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """User entry point for configuration, builds, deployment, and verification."""
+from linspace_console import linspace_log
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -18,6 +20,7 @@ DEFAULT = ROOT / 'local/site.json'
 
 
 def configure(args):
+    linspace_log('STEP', 'Configure site')
     current = json.loads((ROOT / 'config/site.example.json').read_text())
     if args.config.exists():
         current.update(json.loads(args.config.read_text()))
@@ -41,26 +44,38 @@ def configure(args):
         if entered:
             current['stash_public_key_files'] = None if entered == 'auto' else json.loads(entered)
     args.config.parent.mkdir(parents=True, exist_ok=True)
-    pending = args.config.with_name('.site-pending.json')
+    fd, temporary = tempfile.mkstemp(prefix='.site-', suffix='.json', dir=args.config.parent)
+    os.close(fd)
+    pending = Path(temporary)
     try:
         pending.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n')
-        config, key_data, _, _ = siteconfig.load(pending, args.internal_test)
+        config, key_data, _, _ = siteconfig.load(pending, args.internal_test, root=ROOT)
         if key_data:
-            public = ROOT / 'local/ssh.pub'
+            public = ROOT / 'local/keys' / (hashlib.sha256(key_data).hexdigest() + '.pub')
             public.parent.mkdir(parents=True, exist_ok=True)
-            public.write_bytes(key_data)
-            config['ssh_public_key_file'] = 'local/ssh.pub'
+            if public.is_symlink() or public.exists() and public.read_bytes() != key_data:
+                raise ValueError('The saved public-key copy is invalid; inspect local/keys before retrying')
+            if not public.exists():
+                fd, temporary = tempfile.mkstemp(prefix='.key-', dir=public.parent)
+                try:
+                    with os.fdopen(fd, 'wb') as output:
+                        output.write(key_data)
+                    os.chmod(temporary, 0o644)
+                    os.replace(temporary, public)
+                finally:
+                    Path(temporary).unlink(missing_ok=True)
+            config['ssh_public_key_file'] = public.relative_to(ROOT).as_posix()
         # Retain operator-selected public configuration paths.
         pending.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n')
         pending.chmod(0o600)
         os.replace(pending, args.config)
     finally:
         pending.unlink(missing_ok=True)
-    print(f'Saved {args.config}. Domain, homepage, and client URLs will be generated together.')
-    print('Stash uses SSH signatures; no token is needed. With no authorized key, writes are disabled.')
+    linspace_log('OK', f'Saved {args.config}')
+    linspace_log('INFO', 'Stash uses SSH signatures; no token is needed.')
     options = (' --config ' + shlex.quote(str(args.config))) if args.config != DEFAULT else ''
     options += ' --internal-test' if args.internal_test else ''
-    print(f'Next: ./linspace deploy{options} --dry-run, then sudo ./linspace deploy{options}')
+    linspace_log('INFO', f'Next: ./linspace deploy{options} --dry-run, then sudo ./linspace deploy{options}')
 
 
 def main():
@@ -116,5 +131,5 @@ if __name__ == '__main__':
     try:
         main()
     except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError) as error:
-        print(f'Error: {error}', file=sys.stderr)
+        linspace_log('ERROR', error)
         sys.exit(1)

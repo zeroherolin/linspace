@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+@@include:src/common/ui.sh@@
 # Install a pinned mihomo version for ordinary background execution.
 # Usage: curl -fsSL https://@@DOMAIN@@/mihomo/install | bash
 main() (
@@ -12,7 +13,7 @@ main() (
     GEO_SHA=@@GEO_SHA@@
     LINSPACE_DOWNLOAD_CACHE=/var/cache/linspace-mihomo
     GEO_FILE=''
-    fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+    fail() { linspace_log ERROR "$*"; exit 1; }
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --geoip-file) [[ $# -ge 2 ]] || fail 'Missing --geoip-file value.'; GEO_FILE=$2; shift 2 ;;
@@ -87,9 +88,9 @@ main() (
                 fi
             done
             [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start || ok=0
-            [[ $ok -eq 0 ]] || printf 'Installation failed. Previous files and process state were restored.\n' >&2
+            [[ $ok -eq 0 ]] || linspace_log WARN 'Installation failed. Previous files and process state were restored.'
         fi
-        if [[ $ok -eq 1 ]]; then rm -rf "$WORK"; else printf 'Rollback incomplete. Backup retained at %s\n' "$WORK" >&2; fi
+        if [[ $ok -eq 1 ]]; then rm -rf "$WORK"; else linspace_log ERROR "Rollback incomplete; backup: $WORK"; fi
         exit "$rc"
     }
     trap cleanup EXIT
@@ -102,7 +103,8 @@ main() (
     gzip -dc "$WORK/mihomo.gz" > "$WORK/mihomo"
     verify "$ENGINE_RAW_SHA" "$WORK/mihomo" || fail 'The extracted engine checksum does not match.'
     chmod 755 "$WORK/mihomo"
-    "$WORK/mihomo" -v
+    "$WORK/mihomo" -v > "$WORK/version.log" 2>&1 || fail 'The Mihomo package cannot run on this system.'
+    [[ $(cat "$WORK/version.log") == *"@@MIHOMO_VERSION@@"* ]] || fail 'The Mihomo version does not match the download manifest.'
     if [[ -n "$GEO_FILE" ]]; then
         cp -- "$GEO_FILE" "$WORK/GeoIP.dat"
     else
@@ -123,8 +125,7 @@ RUNNER_SH
 @@include:vendor/notices/LICENSE.mihomo@@
 MIHOMO_LICENSE
     cat > "$WORK/SOURCE.mihomo" <<'MIHOMO_SOURCE'
-Unmodified Mihomo v1.19.27, licensed under GPL-3.0.
-Upstream: https://github.com/MetaCubeX/mihomo/tree/5184081ac327394d9e15fa5d5f9f4a61e723fd94
+Unmodified Mihomo @@MIHOMO_VERSION@@, licensed under GPL-3.0.
 Corresponding source and notices: @@ASSET_SOURCE@@
 MIHOMO_SOURCE
     "$LINSPACE_PYTHON" -I - "$WORK/vendor.zip" <<'VENDOR_PY'
@@ -156,7 +157,7 @@ VENDOR_PY
     publish "$LIB/SOURCE.mihomo" "$WORK/SOURCE.mihomo" 644
     [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start
     CHANGED=0
-    printf 'Installed mihomo v1.19.27 for ordinary background execution.\n'
-    printf 'Run sub to import a subscription; use restart after exit or reboot. No service or autostart is installed.\n'
+    linspace_log OK 'Installed Mihomo @@MIHOMO_VERSION@@'
+    linspace_log INFO 'Next: import a subscription with /mihomo/sub. Use /mihomo/restart after reboot.'
 )
 main "$@"

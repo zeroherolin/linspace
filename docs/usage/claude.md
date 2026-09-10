@@ -6,10 +6,11 @@ Run as the account that will use Claude Code on supported Linux or macOS. You ne
 
 ```sh
 curl -fsSL https://your-domain.cn/claude/install | bash
+export PATH="$HOME/.local/bin:$PATH"
 claude --version
 ```
 
-The script tries the [official installer](https://code.claude.com/docs/en/setup), then a verified fallback if installation fails. Follow its PATH instructions. Rerun the same command to update; use `claude doctor` to diagnose an installation.
+The script installs a reviewed native version from official sources, with automatic verified fallback. It preserves a newer working installation. It never edits shell startup files. Follow the printed PATH hint, then rerun after site updates to install a newer reviewed version.
 
 ## Configure
 

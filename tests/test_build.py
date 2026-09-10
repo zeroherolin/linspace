@@ -66,7 +66,7 @@ class BuildTests(unittest.TestCase):
             for _ in range(2):
                 result = subprocess.run(['bash', str(release / 'linspace'), '--internal-test', '--dry-run'], text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn('No host changes made', result.stdout)
+                self.assertIn('No host changes made', result.stderr)
                 deploy.checked_release(release)
             result = subprocess.run(['bash', str(release / 'linspace'), '--dry-run'], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

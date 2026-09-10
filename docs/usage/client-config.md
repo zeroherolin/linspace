@@ -37,3 +37,15 @@ Use an unused backup filename if `.bak` already exists. A failed direct download
 Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) backs up and atomically replaces `auth.json`. Its optional `-u` also updates the selected provider's `base_url`; without `-u`, `config.toml` stays untouched.
 
 Restart the client after changing settings or the catalog. Site updates do not update client files automatically.
+
+## Command lookup
+
+If `claude` or `codex` is not found, run the PATH command printed by the installer. The default is:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Commands use `~/.local/bin` by default; Codex also accepts `CODEX_INSTALL_DIR`. Use the installer’s printed path when customized.
+
+This changes only the current terminal. For future terminals, add that line yourself to `~/.bashrc` (interactive Bash) or `~/.zshrc` (Zsh). Bash login shells read the first existing `~/.bash_profile`, `~/.bash_login` or `~/.profile`; keep it sourcing your Bash configuration. The installer does not modify these files.

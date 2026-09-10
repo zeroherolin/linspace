@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Install a built linspace release on one Debian/Ubuntu host."""
+from linspace_console import linspace_log
 import argparse
 import datetime
 import fcntl
@@ -34,7 +35,19 @@ MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stash
 
 
 def run(args, **kwargs):
-    return subprocess.run([str(a) for a in args], check=True, **kwargs)
+    # Subprocess output is diagnostic detail, not the normal deployment UI.
+    if not kwargs.get('capture_output'):
+        kwargs.setdefault('stdout', subprocess.PIPE)
+        kwargs.setdefault('stderr', subprocess.PIPE)
+    result = subprocess.run([str(a) for a in args], **kwargs)
+    if result.returncode:
+        detail = result.stderr or result.stdout or ''
+        if isinstance(detail, bytes):
+            detail = detail.decode('utf-8', errors='replace')
+        if detail:
+            linspace_log('ERROR', '\n'.join(detail.splitlines()[-20:]))
+        result.check_returncode()
+    return result
 
 
 def stop_writer():
@@ -195,7 +208,7 @@ def restore(directory):
         run(['systemctl', 'stop', 'caddy'])
     if state['stash_active']:
         run(['systemctl', 'start', 'stashd.socket'])
-    print(f'Restored managed configuration, authentication, code, and release pointer from {directory}. Stash channel data was not changed.')
+    linspace_log('OK', f'Restored {directory}; Stash channel data was not changed.')
 
 
 def apply(release, args):
@@ -204,9 +217,10 @@ def apply(release, args):
         raise ValueError('Rebuild this release for SSH signature authentication; use rollback to restore a legacy installation')
     if meta['internal_test'] and not args.internal_test:
         raise ValueError('An internal-test build requires --internal-test; rebuild with filed site details for production')
-    print(f'Domain: {meta["domain"]}\nPublic release: /srv/linspace/releases/{release_id}\nCaddy: {SITE}\nStash authorized SSH keys: {meta["stash_key_count"]}\nMode: ' + ('internal test' if meta['internal_test'] else 'production'))
+    linspace_log('STEP', f'Deploy {meta["domain"]}')
+    linspace_log('INFO', f'Release {release_id}; {meta["stash_key_count"]} authorized Stash key(s)')
     if args.dry_run:
-        print('Plan: validate build, install missing dependencies, back up managed files, activate release, reload services, verify HTTPS. No host changes made.')
+        linspace_log('INFO', 'Plan: validate, install Caddy if needed, back up, activate, reload and verify HTTPS. No host changes made.')
         return
     if os.geteuid() != 0 or not Path('/etc/debian_version').exists() or not Path('/run/systemd/system').is_dir():
         raise ValueError('Deployment requires root on Debian/Ubuntu with a running systemd. Use sudo ./linspace deploy.')
@@ -243,7 +257,7 @@ def apply(release, args):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
         backup = Path('/var/backups/linspace') / stamp
         snapshot(backup)
-        print(f'Backup: {backup}')
+        linspace_log('INFO', f'Backup: {backup}')
         try:
             try:
                 account = pwd.getpwnam('stash')
@@ -269,6 +283,7 @@ def apply(release, args):
                         path.chmod(0o755 if path.is_dir() else 0o644)
                     os.replace(staged, public_release)
             # Never pair the new proxy routes with the old unauthenticated writer.
+            linspace_log('STEP', 'Activate configuration and services')
             stop_writer()
             atomic(SITE, (release / 'config/Caddyfile').read_bytes())
             atomic(FRAGMENT, (release / 'config/stash.caddy.template').read_bytes(), 0o640, caddy_gid)
@@ -294,16 +309,17 @@ def apply(release, args):
                 raise RuntimeError('stashd did not answer on its Unix socket')
             atomic(STATE, (json.dumps({**meta, 'release_id': release_id, 'backup': str(backup)}, indent=2) + '\n').encode(), 0o600)
         except BaseException:
-            print(f'Deployment failed; restoring {backup}', file=sys.stderr)
+            linspace_log('WARN', f'Deployment failed; restoring {backup}')
             try:
                 restore(backup)
             except Exception as error:
-                print(f'Automatic restore failed: {error}. Backup retained at {backup}', file=sys.stderr)
+                linspace_log('ERROR', f'Automatic restore failed: {error}. Backup: {backup}')
             raise
-    print(f'Installed release {release_id}. Stash uses SSH signatures ({meta["stash_key_count"]} authorized keys); no token is required.')
+    linspace_log('OK', f'Activated release {release_id}; Stash uses SSH signatures.')
     if args.skip_verify:
-        print('HTTPS verification skipped explicitly. Run ./linspace verify before declaring the site ready.')
+        linspace_log('WARN', 'HTTPS verification skipped. Run ./linspace verify before declaring the site ready.')
         return
+    linspace_log('STEP', 'Verify HTTPS routes')
     last_error = None
     for attempt in range(12):
         try:
@@ -340,5 +356,5 @@ if __name__ == '__main__':
     try:
         main()
     except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError) as error:
-        print(f'Error: {error}', file=sys.stderr)
+        linspace_log('ERROR', error)
         sys.exit(1)

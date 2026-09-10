@@ -6,10 +6,11 @@ Run as the account that will use Codex on supported Linux or macOS. You need Bas
 
 ```sh
 curl -fsSL https://your-domain.cn/codex/install | bash
+export PATH="$HOME/.local/bin:$PATH"
 codex --version
 ```
 
-The script tries the [official installer](https://learn.chatgpt.com/docs/codex/cli), then a verified fallback if installation fails. Follow its PATH instructions. Run the same command again to update.
+The script installs a reviewed native version from official sources, with automatic verified fallback. It preserves a newer working installation. It never edits shell startup files; follow the PATH hint for a custom install directory. Rerun after site updates to install a newer reviewed version.
 
 ## Configure
 

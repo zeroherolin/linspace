@@ -4,7 +4,7 @@ Replace `your-domain.cn` with your site's domain. Run commands one at a time and
 
 These examples use the default configuration directories. Downloads replace existing settings; see [configuration files](usage/client-config.md) for backups and custom directories.
 
-Installers use verified fallback downloads when upstream access fails. Linux is the primary client platform; macOS supports Intel and Apple Silicon where upstream binaries are compatible. Linux and macOS need their standard shell tools, curl, tar, gzip and a SHA256 tool; OpenSSH is required for SSH/Stash.
+Installers use reviewed native packages from official sources, with verified fallback downloads. They never edit Shell startup files. Follow the printed PATH hint if a command is not found. Linux is the primary client platform; macOS supports Intel and Apple Silicon where upstream binaries are compatible. Linux and macOS need their standard shell tools, curl, tar, gzip and a SHA256 tool; OpenSSH is required for SSH/Stash.
 
 ## 1. SSH access
 

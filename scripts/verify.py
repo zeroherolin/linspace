@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check HTTPS routes without writing or clearing stash channels."""
+from linspace_console import linspace_log
 import argparse
 import json
 import subprocess
@@ -42,7 +43,7 @@ def verify(meta, local=False, quiet=False):
         if status != expected or not headers.get('content-type', '').startswith(media) or cache not in headers.get('cache-control', '') or headers.get('x-content-type-options') != 'nosniff':
             raise RuntimeError(f'{path}: unexpected status or headers (HTTP {status})')
         if not quiet:
-            print(f'OK {path}: {status}')
+            linspace_log('OK', f'{path} [{status}]')
     for path, expected, method in [('/not-published', 404, 'HEAD'), ('/stash/clear', 401, 'POST'), ('/stash/download0', 401, 'PUT')]:
         status, _ = probe(domain, path, method, local)
         if status != expected:
@@ -51,7 +52,7 @@ def verify(meta, local=False, quiet=False):
         status, headers = probe(domain, path, local=local, scheme=scheme)
         if status != expected or headers.get('location') != destination:
             raise RuntimeError(f'{scheme} {path}: unexpected redirect')
-    print(f'HTTPS verification passed for {domain}' + (' via loopback' if local else '') + '; stash contents unchanged.')
+    linspace_log('OK', f'HTTPS verification passed for {domain}' + (' via loopback' if local else '') + '; stash contents unchanged.')
 
 
 def main():

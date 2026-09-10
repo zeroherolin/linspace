@@ -1,3 +1,4 @@
+from linspace_console import linspace_log
 import argparse
 import fcntl
 import json
@@ -162,7 +163,7 @@ def ready(pid):
         try:
             connection.request('GET', '/version')
             response = connection.getresponse()
-            return response.status == 200 and json.loads(response.read())['version'] == 'v1.19.27'
+            return response.status == 200 and json.loads(response.read())['version'] == '@@MIHOMO_VERSION@@'
         finally:
             connection.close()
     except (OSError, ValueError, KeyError, http.client.HTTPException):
@@ -198,7 +199,7 @@ def main():
             print(pid)
             return 0
         if action == 'status':
-            print(f'mihomo RUNNING (pid {pid})' if pid else 'mihomo STOPPED')
+            linspace_log('OK' if pid else 'INFO', f'mihomo RUNNING (pid {pid})' if pid else 'mihomo STOPPED')
         return 0 if pid else 3
     prepare_runtime()
     with (CONTROL / 'control.lock').open('w') as lock:
@@ -214,8 +215,8 @@ def main():
             except BaseException:
                 stop_background()
                 raise
-            print(f'mihomo started in background (pid {pid}).')
-            print('Proxy: 127.0.0.1:7890; log: /var/log/mihomo/mihomo.log')
+            linspace_log('OK', f'mihomo started in background (pid {pid}).')
+            linspace_log('INFO', 'Proxy: 127.0.0.1:7890; log: /var/log/mihomo/mihomo.log')
     return 0
 
 
@@ -223,5 +224,5 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        print('Error: ' + str(exc), file=sys.stderr)
+        linspace_log('ERROR', exc)
         sys.exit(1)

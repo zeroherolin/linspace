@@ -8,9 +8,11 @@ From the repository root:
 ./linspace check
 ```
 
-The suite checks syntax, documentation links, configuration, catalog consistency, CLI behavior, reproducible builds, release integrity, recovery and Stash authentication.
+The suite checks syntax, documentation links and anchors, configuration, catalog consistency, CLI behavior, reproducible builds, release integrity, recovery and Stash authentication.
 
 It needs curl, OpenSSL, OpenSSH, local Unix sockets and loopback TCP. Client tests use temporary homes, synthetic keys, an isolated agent and a temporary HTTPS certificate. No personal configuration or root privileges are needed. Linux is the primary client target; test macOS in temporary HOME, CODEX_HOME and XDG directories. Never load real credentials or modify shell profiles, and remove test directories, caches and child processes afterward.
+
+Status messages use `STEP`, `OK`, `INFO`, `WARN` and `ERROR` on stderr. Colors are limited to interactive terminals and can be disabled with `NO_COLOR=1`. URL lists and PID queries remain plain stdout.
 
 ## Disposable deployment
 

@@ -1,4 +1,5 @@
 """Embedded in each downloadable Stash script; only standard-library Python."""
+from linspace_console import linspace_log
 import argparse
 import base64
 import hashlib
@@ -126,7 +127,7 @@ def main(base_url, action, argv=None):
                 raise RuntimeError(f'Cannot obtain an SSH signing challenge (HTTP {status}).')
             message = temporary / 'message'
             message.write_text('\n'.join((PROTOCOL, base_url, method, path, hashlib.sha256(data).hexdigest(), challenge, '')), encoding='ascii')
-            signed = subprocess.run(['ssh-keygen', '-Y', 'sign', '-f', str(identity), '-n',
+            signed = subprocess.run(['ssh-keygen', '-q', '-Y', 'sign', '-f', str(identity), '-n',
                                      'linspace-stash@' + domain, str(message)], timeout=120)
             if signed.returncode:
                 raise RuntimeError('SSH signing failed. Unlock the selected key or load it into ssh-agent.')
@@ -147,9 +148,9 @@ def main(base_url, action, argv=None):
                           415: 'file is not valid UTF-8 text', 503: 'authentication service unavailable'}.get(status, 'unexpected response')
                 raise RuntimeError(f'Stash write failed (HTTP {status}): {detail}.')
         if method == 'PUT':
-            print(f'Uploaded {len(data)} bytes; anyone can read {base_url}{path}')
+            linspace_log('OK', f'Uploaded {len(data)} bytes; public URL: {base_url}{path}')
         else:
-            print(f'Cleared all eight channels of {base_url}/stash')
+            linspace_log('OK', f'Cleared all eight channels of {base_url}/stash')
     except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-        print(f'Error: {error}', file=sys.stderr)
+        linspace_log('ERROR', error)
         sys.exit(1)

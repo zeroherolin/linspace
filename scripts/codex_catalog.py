@@ -1,4 +1,5 @@
 """Maintain the public Codex catalog and validate its configuration contract."""
+from linspace_console import linspace_log
 import argparse
 import copy
 import hashlib
@@ -122,7 +123,7 @@ def main():
         (directory / 'models-1m.json').write_bytes(data)
         (directory / 'catalog-source.json').write_text(json.dumps(manifest, indent=2) + '\n')
     _, catalog = load_catalog()
-    print('Codex catalog checked: ' + ', '.join(validate_catalog(catalog)))
+    linspace_log('OK', 'Codex catalog checked: ' + ', '.join(validate_catalog(catalog)))
 
 
 if __name__ == '__main__':

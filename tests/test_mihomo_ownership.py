@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'vendor/pyyaml.zip'))
+sys.path.insert(0,str(ROOT/'scripts'))
 MODULES=[]
 for name in ('process','sub'):
     spec=importlib.util.spec_from_file_location('mihomo_'+name,ROOT/f'src/mihomo/{name}.py')

@@ -8,7 +8,7 @@ help:
 	@echo 'make check             Run offline development checks'
 
 build:
-	$(PYTHON) scripts/cli.py build
+	@$(PYTHON) scripts/cli.py build
 
 check:
-	$(PYTHON) scripts/check.py
+	@$(PYTHON) scripts/check.py

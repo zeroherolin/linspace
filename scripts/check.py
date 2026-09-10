@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run offline checks without a personal site configuration or administrator privileges."""
+from linspace_console import linspace_log
 import ast
 import json
 import re
@@ -9,6 +10,7 @@ import tempfile
 from pathlib import Path
 import build
 import deploy
+import markdown_checks
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,12 +22,7 @@ def main():
     for path in [ROOT / 'linspace', *ROOT.rglob('*.sh')]:
         if 'dist' not in path.parts and 'local' not in path.parts and '@@include:' not in path.read_text():
             subprocess.run(['bash', '-n', path], check=True)
-    for page in [*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'vendor').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')]:
-        for link in re.findall(r'\[[^\]]*\]\(([^)]+)\)', page.read_text()):
-            link = link.split('#', 1)[0]
-            if link and not re.match(r'[a-z]+:', link):
-                if not (page.parent / link).exists():
-                    raise ValueError(f'{page}: missing link {link}')
+    markdown_checks.check([*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'vendor').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')])
     with tempfile.TemporaryDirectory(prefix='linspace-check-') as tmp:
         root = Path(tmp)
         config = root / 'site.json'
@@ -40,9 +37,20 @@ def main():
                     ast.parse(embedded, filename=str(path))
         for path in release.rglob('*.py'):
             ast.parse(path.read_text(), filename=str(path))
-    subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True, cwd=ROOT)
-    print('All source, generated-script, local-link, release-integrity, configuration, deployment, and stash checks passed.')
+    linspace_log('STEP', 'Run behavior and regression tests')
+    result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], text=True, capture_output=True, cwd=ROOT)
+    if result.returncode:
+        linspace_log('ERROR', 'Regression tests failed')
+        details=result.stderr
+        start=details.find('=' * 20)
+        sys.stderr.write(details[start:] if start>=0 else result.stdout+details)
+        raise SystemExit(result.returncode)
+    count = re.search(r'Ran (\d+) tests?', result.stderr)
+    linspace_log('OK', f'{count[1] if count else "All"} tests passed')
+    linspace_log('OK', 'Source, scripts, documentation, release integrity and behavior checks passed.')
 
 
 if __name__ == '__main__':
-    main()
+    try:main()
+    except (ValueError,OSError,subprocess.SubprocessError) as exc:
+        linspace_log('ERROR', exc);raise SystemExit(1)

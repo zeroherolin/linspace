@@ -31,7 +31,7 @@ Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@
 
 ## Versions and release validation
 
-Mihomo is pinned to v1.19.27; update its runtime expectations together. `config/downloads.json` is the only interface to download hosting. Import a verified export from the resource project before deploying. Keep bundled parser code and notices in `vendor/` consistent with their manifest.
+Download versions and hashes come from `config/downloads.json`; validate Mihomo API behavior when changing its version. This manifest is the only interface to download hosting. Import a verified export from the resource project before deploying. Keep bundled parser code and notices in `vendor/` consistent with their manifest.
 
 Update the Codex catalog through its [refresh procedure](config/codex/README.md#refresh-and-validate). Normal builds need neither Codex nor network access.
 

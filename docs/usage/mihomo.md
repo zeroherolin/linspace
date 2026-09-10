@@ -8,7 +8,7 @@ Run as **root on Debian/Ubuntu**, x86_64 or ARM64. Replace `your-domain.cn` with
 curl -fsSL https://your-domain.cn/mihomo/install | bash
 ```
 
-This installs pinned Mihomo **v1.19.27**, GeoIP and its Python runtime when needed. Failed downloads automatically use a verified download fallback. A fresh install starts nothing until you import a subscription.
+This installs the pinned Mihomo version shown in the output, GeoIP and Python when needed. Failed downloads automatically use a verified download fallback. A fresh install starts nothing until you import a subscription.
 
 Rerunning install preserves a recognized linspace configuration. Back up and remove an unmanaged or supervised Mihomo installation before switching to this installer.
 

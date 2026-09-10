@@ -1,6 +1,6 @@
 # linspace server bundle
 
-This bundle contains the configured website, SSH key when selected, Mihomo tools/data, Claude settings, Codex settings/catalog/auth script, Stash and deployment tools. Site values are in `release.json`.
+This bundle contains the configured website, SSH key when selected, client installers and shared settings, Stash and deployment tools. Large application/data downloads are external. Site values are in `release.json`.
 
 Use Debian 12+ or Ubuntu 22.04+ with systemd, root/sudo, Python 3.9+ and Bash. DNS and filing must be complete, with TCP 80/443 reachable. Install curl, CA certificates and OpenSSH first. Existing Caddy must be 2.10+; missing Caddy is installed with a verified download fallback. No Git checkout or TOML parser is needed.
 

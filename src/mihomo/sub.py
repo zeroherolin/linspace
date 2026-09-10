@@ -1,3 +1,4 @@
+from linspace_console import linspace_log
 import argparse
 import copy
 import re
@@ -112,7 +113,7 @@ def wait_ready():
             pid = int(control('pid').stdout.strip() or 0)
             if pid > 0 and owned_ports(pid):
                 try:
-                    if api('/version')['version'] == 'v1.19.27':
+                    if api('/version')['version'] == '@@MIHOMO_VERSION@@':
                         return
                 except Exception:
                     pass
@@ -238,7 +239,7 @@ def download(url, target, via_proxy=False):
         'curl', '-q', '-fsSL', '--globoff', '--proto', '=https', '--proto-redir', '=https',
         '--connect-timeout', '10', '--max-time', '60', '--max-filesize', str(MAX_SIZE),
         '--proxy', proxy, '--noproxy', '' if via_proxy else '*',
-        '--user-agent', 'clash.meta/v1.19.27', '--config', '-', '-o', str(target)],
+        '--user-agent', 'clash.meta/@@MIHOMO_VERSION@@', '--config', '-', '-o', str(target)],
         input=config, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result.returncode == 0
 
@@ -284,7 +285,7 @@ def select_first_available(stage, names):
             else:
                 fail('The trial API is not ready. The existing service was not changed.')
             for index, name in enumerate(names, 1):
-                print(f'Checking proxy {index}/{len(names)}: {name}', flush=True)
+                linspace_log('STEP', f'Check proxy {index}/{len(names)}: {name}')
                 if probe_node(name, sock):
                     api('/proxies/' + urllib.parse.quote(GROUP, safe=''), 'PUT', {'name': name}, sock=sock)
                     return name
@@ -378,7 +379,7 @@ def main(argv=None):
                     wait_ready()
                     if not download(url, raw, via_proxy=True):
                         fail('Download through the existing proxy also failed. The current configuration was not changed.')
-                    print('Downloaded using the existing service routing and selected proxy.')
+                    linspace_log('INFO', 'Downloaded through the existing proxy.')
             names = normalize(raw, work / 'proxies.yaml')
             shutil.copyfile(TEMPLATE, work / 'config.yaml')
             stage = work / 'data'
@@ -423,8 +424,8 @@ def main(argv=None):
             archive = ROOT / ('backup-' + str(time.time_ns()))
             os.replace(backup, archive)
             changed = False
-            print(f'Updated successfully: {len(names)} proxies; {GROUP} -> {selected}')
-            print(f'Previous configuration: {archive}; proxy: 127.0.0.1:7890; control socket: {SOCKET}.')
+            linspace_log('OK', f'Updated {len(names)} proxies; {GROUP} -> {selected}')
+            linspace_log('INFO', f'Previous configuration: {archive}; proxy: 127.0.0.1:7890')
         except BaseException:
             if changed:
                 try:
@@ -440,10 +441,10 @@ def main(argv=None):
                     if was_active:
                         control('start')
                         wait_ready()
-                    print('Update failed. Previous files and service state were restored.', file=sys.stderr)
+                    linspace_log('WARN', 'Update failed. Previous files and service state were restored.')
                 except BaseException:
                     keep_work = True
-                    print(f'Rollback is incomplete. Private backups are retained at {work}; restore them manually.', file=sys.stderr)
+                    linspace_log('ERROR', f'Rollback incomplete; private backups: {work}')
             raise
         finally:
             if not keep_work:
@@ -457,9 +458,9 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('Operation interrupted.', file=sys.stderr)
+        linspace_log('WARN', 'Operation interrupted.')
         sys.exit(130)
     except Exception as exc:
         # Do not echo URLs, node credentials, or raw engine logs on errors.
-        print('Error: ' + (str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__), file=sys.stderr)
+        linspace_log('ERROR', str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__)
         sys.exit(1)

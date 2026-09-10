@@ -37,17 +37,21 @@ linspace_file() (
     linspace_checksum "$cached" "$sha" "$size" && return 0
     [[ ! -e $cached || -f $cached ]] || return 1
     temporary=$(mktemp "$cache/.download.XXXXXX") || return 1
-    trap 'rm -f -- "$temporary"' EXIT
+    trap 'rm -f -- "$temporary" "$temporary.err"' EXIT
     modes=("$first")
     if linspace_proxy_set; then
         if [[ $first == direct ]]; then modes+=(environment); else modes+=(direct); fi
     fi
     for mode in "${modes[@]}"; do
-        printf 'Downloading (%s): %s\n' "$mode" "$url" >&2
-        if linspace_fetch "$url" "$temporary" "$size" "$mode" "$budget" && linspace_checksum "$temporary" "$sha" "$size"; then
+        host=${url#*://}; host=${host%%/*}
+        route=direct
+        if [[ $mode == environment ]] && linspace_proxy_set; then route=proxy; fi
+        linspace_log STEP "Download ${LINSPACE_DOWNLOAD_LABEL:-file} from $host ($route)"
+        if linspace_fetch "$url" "$temporary" "$size" "$mode" "$budget" 2>"$temporary.err" && linspace_checksum "$temporary" "$sha" "$size"; then
             mv -f -- "$temporary" "$cached" || return 1
             return 0
         fi
+        linspace_log WARN "Source failed or checksum mismatch: $host"
         : > "$temporary" || return 1
     done
     return 1
@@ -56,13 +60,14 @@ linspace_file() (
 linspace_asset_info() {
     case "$1" in
 @@ASSET_CASES@@
-        *) printf 'Unknown installation asset: %s\n' "$1" >&2; return 1 ;;
+        *) linspace_log ERROR "Unknown installation asset: $1"; return 1 ;;
     esac
 }
 
 linspace_asset() (
     set -uo pipefail
     name=$1 target=$2
+    LINSPACE_DOWNLOAD_LABEL=$name
     linspace_asset_info "$name" || return 1
     cache=${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}
     [[ $cache == /* && ! -L $cache ]] || return 1
@@ -79,50 +84,105 @@ linspace_asset() (
         cp -- "$cache/$ASSET_SHA" "$target"
         return $?
     fi
-    printf 'Using download fallback for %s.\n' "$name" >&2
+    linspace_log WARN "Using download fallback for $name"
     joined=$(mktemp "$cache/.assemble.XXXXXX") || return 1
     trap 'rm -f -- "$joined"' EXIT
     for ((index=0; index<${#ASSET_PART_URLS[@]}; index++)); do
+        LINSPACE_DOWNLOAD_LABEL="$name [$((index+1))/${#ASSET_PART_URLS[@]}]"
         sha=${ASSET_PART_SHAS[index]}
         linspace_file "$sha" "${ASSET_PART_SIZES[index]}" "${ASSET_PART_URLS[index]}" direct 600 || return 1
         cat -- "$cache/$sha" >> "$joined" || return 1
     done
-    linspace_checksum "$joined" "$ASSET_SHA" "$ASSET_SIZE" || { echo 'Asset checksum mismatch.' >&2; return 1; }
+    linspace_checksum "$joined" "$ASSET_SHA" "$ASSET_SIZE" || { linspace_log ERROR 'Asset checksum mismatch.'; return 1; }
     mv -f -- "$joined" "$cache/$ASSET_SHA" || return 1
     cp -- "$cache/$ASSET_SHA" "$target"
 )
 
 linspace_platform() {
     local os arch
-    case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo 'Linux or macOS is required.' >&2; return 1 ;; esac
-    case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) echo 'x86_64 or ARM64 is required.' >&2; return 1 ;; esac
+    case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) linspace_log ERROR 'Linux or macOS is required.'; return 1 ;; esac
+    case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) linspace_log ERROR 'x86_64 or ARM64 is required.'; return 1 ;; esac
     printf '%s-%s\n' "$os" "$arch"
 }
 
+linspace_python_runtime() (
+    set -Eeuo pipefail
+    platform=$1 minimum=$2
+    linspace_asset_info "python-$platform" 2>/dev/null || { linspace_log ERROR "Python 3.$minimum+ is required on $platform."; exit 1; }
+    cache=${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}
+    [[ $cache == /* && ! -L $cache ]] || exit 1
+    umask 077
+    mkdir -p -- "$cache"
+    [[ -O $cache ]] || exit 1
+    chmod 700 "$cache"
+    runtime=$cache/python-$ASSET_SHA
+    [[ ! -L $runtime && ( ! -e $runtime || -d $runtime ) ]] || exit 1
+    usable() { [[ -x $1/python/bin/python3 ]] && "$1/python/bin/python3" -I -c "import ssl,sys; assert sys.version_info >= (3,$minimum)" >/dev/null 2>&1; }
+    if usable "$runtime"; then printf '%s\n' "$runtime/python/bin/python3"; exit 0; fi
+    lock=$cache/.python-lock-$ASSET_SHA
+    locked=0
+    for ((attempt=0; attempt<30; attempt++)); do
+        if mkdir -- "$lock" 2>/dev/null; then locked=1; break; fi
+        [[ -d $lock && ! -L $lock ]] || exit 1
+        owner=''
+        if [[ -f $lock/pid ]]; then
+            IFS= read -r owner < "$lock/pid" || true
+            if [[ $owner =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+                rm -f -- "$lock/pid"
+                rmdir -- "$lock" 2>/dev/null || true
+            fi
+        fi
+        sleep 1
+    done
+    [[ $locked == 1 ]] || { linspace_log ERROR 'Another installer is preparing Python; retry shortly.'; exit 1; }
+    staged='' previous='' installed=0 ready=0
+    cleanup() {
+        result=$?
+        trap - EXIT
+        [[ -z $staged ]] || rm -rf -- "$staged"
+        if [[ $ready == 0 && $installed == 1 ]]; then rm -rf -- "$runtime"; fi
+        if [[ -n $previous && -d $previous ]]; then
+            if [[ $ready == 1 ]]; then
+                rm -rf -- "$previous"
+            else
+                mv -- "$previous" "$runtime"
+            fi
+        fi
+        rm -f -- "$lock/pid"
+        rmdir -- "$lock" 2>/dev/null || true
+        exit "$result"
+    }
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf '%s\n' "${BASHPID:-$$}" > "$lock/pid"
+    if usable "$runtime"; then printf '%s\n' "$runtime/python/bin/python3"; exit 0; fi
+    staged=$(mktemp -d "$cache/.python.XXXXXX")
+    linspace_asset "python-$platform" "$staged/runtime.tar.gz" || exit 1
+    tar -xzf "$staged/runtime.tar.gz" -C "$staged"
+    rm -- "$staged/runtime.tar.gz"
+    usable "$staged" || { linspace_log ERROR 'The downloaded Python runtime cannot run on this system.'; exit 1; }
+    # Another installer may have completed while the archive was downloading.
+    if ! usable "$runtime"; then
+        if [[ -e $runtime ]]; then
+            previous=$(mktemp -d "$cache/.python-previous.XXXXXX")
+            rmdir "$previous"
+            mv -- "$runtime" "$previous"
+        fi
+        mv -- "$staged" "$runtime"
+        installed=1
+    fi
+    usable "$runtime" || exit 1
+    ready=1
+    printf '%s\n' "$runtime/python/bin/python3"
+)
+
 linspace_python() {
-    local minimum=${1:-9} platform archive runtime staged candidate
+    local minimum=${1:-9} platform
     if command -v python3 >/dev/null 2>&1 && python3 -I -c "import sys; assert sys.version_info >= (3,$minimum)" 2>/dev/null; then
         LINSPACE_PYTHON=$(command -v python3)
         return 0
     fi
     platform=$(linspace_platform) || return 1
-    linspace_asset_info "python-$platform" 2>/dev/null || { printf "Python 3.9+ is required on %s; install it and retry.\n" "$platform" >&2; return 1; }
-    runtime=$LINSPACE_DOWNLOAD_CACHE/python-$ASSET_SHA
-    [[ ! -L $runtime ]] || return 1
-    if [[ ! -x $runtime/python/bin/python3 ]]; then
-        mkdir -p -- "$LINSPACE_DOWNLOAD_CACHE" || return 1
-        staged=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.python.XXXXXX") || return 1
-        archive=$staged/runtime.tar.gz
-        if ! linspace_asset "python-$platform" "$archive" || ! tar -xzf "$archive" -C "$staged"; then
-            rm -rf -- "$staged"; return 1
-        fi
-        rm -f -- "$archive"
-        candidate=$staged/python/bin/python3
-        if ! "$candidate" -I -c 'import ssl, sys; assert sys.version_info >= (3,11)' ; then
-            rm -rf -- "$staged"; return 1
-        fi
-        if [[ -e $runtime ]]; then rm -rf -- "$staged"; else mv -- "$staged" "$runtime" || return 1; fi
-    fi
-    LINSPACE_PYTHON=$runtime/python/bin/python3
-    "$LINSPACE_PYTHON" -I -c "import sys; assert sys.version_info >= (3,$minimum)"
+    LINSPACE_PYTHON=$(linspace_python_runtime "$platform" "$minimum")
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate a configured, offline-buildable deployment release."""
+from linspace_console import linspace_log
 import gzip
 import hashlib
 import io
@@ -27,6 +28,8 @@ def render(relative, values, stack=()):
     if not path.is_relative_to(ROOT) or path in stack:
         raise ValueError(f'Unsafe or cyclic include: {relative}')
     text = INCLUDE.sub(lambda m: render(m[1], values, (*stack, path)), path.read_text())
+    if relative.startswith('src/') and path.suffix == '.py':
+        text = text.replace('from linspace_console import linspace_log', render('scripts/linspace_console.py', values, (*stack, path)))
     for key, value in values.items():
         text = text.replace('@@' + key + '@@', value)
     if re.search(r'@@[A-Z_]+@@|@@include:', text):
@@ -77,8 +80,8 @@ def build(config_path, output=None, internal=False):
     release.mkdir(parents=True)
     key_name = config['ssh_public_key_name']
     values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', **downloads.values()}
-    for client, title, url in [('claude', 'Claude Code', 'https://claude.ai/install.sh'), ('codex', 'Codex', 'https://chatgpt.com/codex/install.sh')]:
-        write(release, f'site/{client}/install', render('src/common/client-install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title, 'OFFICIAL_INSTALL': url}))
+    for client, title in [('claude', 'Claude Code'), ('codex', 'Codex')]:
+        write(release, f'site/{client}/install', render('src/common/client-install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title}))
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
         'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/codex/auth': 'src/codex/auth.sh.in',
@@ -98,7 +101,7 @@ def build(config_path, output=None, internal=False):
     write(release, 'site/stash/keys', '\n'.join(stash_keys) + ('\n' if stash_keys else ''))
     write(release, 'config/stash.allowed_signers', ''.join(f'stash namespaces="linspace-stash@{config["domain"]}" {key}\n' for key in stash_keys))
     write(release, 'site/index.html', siteconfig.page(config))
-    for name in ('deploy.py', 'verify.py'):
+    for name in ('deploy.py', 'verify.py', 'linspace_console.py'):
         write(release, name, (ROOT / 'scripts' / name).read_bytes())
     write(release, 'install-caddy.sh', render('scripts/install-caddy.sh.in', values))
     write(release, 'README.md', (ROOT / 'packaging/site-README.md').read_bytes())
@@ -113,5 +116,5 @@ def build(config_path, output=None, internal=False):
     for directory in (release, target):
         archive(directory)
     checksums(output)
-    print(f'Built {release} for https://{config["domain"]}' + (' (internal test)' if internal else ''))
+    linspace_log('OK', f'Built release for https://{config["domain"]}')
     return release

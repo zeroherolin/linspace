@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
+@@include:src/common/ui.sh@@
 # Install the pinned official Debian package only when Caddy is absent.
 main() (
     set -Eeuo pipefail
     command -v caddy >/dev/null 2>&1 && exit 0
-    [[ $EUID == 0 && -f /etc/debian_version ]] || { echo 'Caddy installation requires root on Debian/Ubuntu.' >&2; exit 1; }
-    for command in curl dpkg sha256sum; do command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }; done
+    [[ $EUID == 0 && -f /etc/debian_version ]] || { linspace_log ERROR 'Caddy installation requires root on Debian/Ubuntu.'; exit 1; }
+    for command in curl dpkg sha256sum; do command -v "$command" >/dev/null || { linspace_log ERROR "Missing prerequisite: $command"; exit 1; }; done
     LINSPACE_DOWNLOAD_CACHE=/var/cache/linspace
 @@include:src/common/download.sh.in@@
     platform=$(linspace_platform)
     mkdir -p "$LINSPACE_DOWNLOAD_CACHE"
     work=$(mktemp -d "$LINSPACE_DOWNLOAD_CACHE/.caddy.XXXXXX")
     trap 'rm -rf -- "$work"' EXIT
-    linspace_asset "caddy-$platform" "$work/caddy.deb" || { echo 'Could not download Caddy.' >&2; exit 1; }
-    dpkg -i "$work/caddy.deb"
+    linspace_asset "caddy-$platform" "$work/caddy.deb" || { linspace_log ERROR 'Could not download Caddy.'; exit 1; }
+    linspace_log STEP 'Install Caddy'
+    if ! dpkg -i "$work/caddy.deb" > "$work/dpkg.log" 2>&1; then
+        linspace_log ERROR 'Caddy package installation failed'
+        while IFS= read -r line; do linspace_log ERROR "$line"; done < "$work/dpkg.log"
+        exit 1
+    fi
+    linspace_log OK 'Caddy installed'
 )
 main "$@"

@@ -58,6 +58,14 @@ To distinguish a source-server problem from a public-network problem:
 
 Loopback verification retains TLS validation but does not prove public access. All verification commands leave channel data unchanged.
 
+If Git reports HTTP/2 framing or ref-listing errors, retry with compatible transport settings:
+
+```sh
+git -c http.version=HTTP/1.1 -c protocol.version=1 pull --ff-only
+```
+
+HTTPS certificate verification remains enabled. A filing block or public TLS reset must be resolved at the network/hosting layer; a loopback check does not clear it.
+
 ## Backups and cleanup
 
 Use [rollback](deployment.md#failure-and-recovery) to restore managed state. Backups and releases are retained until deliberately removed. Keep the active release, releases referenced by retained backups, and Caddy certificate storage.

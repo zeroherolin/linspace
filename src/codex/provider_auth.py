@@ -1,4 +1,5 @@
 """Optional -u support, embedded in the downloadable Codex auth script."""
+from linspace_console import linspace_log
 import copy
 import json
 import os
@@ -122,8 +123,8 @@ def save_pair(config_dir, url, token):
         for path in temporary.values():
             path.unlink(missing_ok=True)
     for path in backups.values():
-        print(f'Previous file: {path}')
-    print('Saved API credentials and selected provider base_url.' if changes else 'API credentials and base_url are already set.')
+        linspace_log('INFO', f'Previous file: {path}')
+    linspace_log('OK', 'Saved API credentials and selected provider base_url.' if changes else 'API credentials and base_url are already set.')
 
 
 def provider_auth_main():
@@ -135,5 +136,5 @@ def provider_auth_main():
             token = source.read().removesuffix('\n')
         save_pair(Path(sys.argv[1]), sys.argv[2], token)
     except (OSError, ValueError, RuntimeError) as error:
-        print(f'Error: {error}', file=sys.stderr)
+        linspace_log('ERROR', error)
         sys.exit(1)

@@ -56,9 +56,9 @@ The wizard saves `local/site.json`, which Git ignores. Enter keeps the current v
 | `codex_config_file` | Default: `config/codex/config.toml` |
 | `stash_public_key_files` | `auto` in the wizard / `null` in JSON: reuse the SSH key; JSON path array: separate keys; `[]`: disable writes |
 
-The SSH key above is published at `/ssh/team.pub` when that filename is selected. The wizard copies it to `local/ssh.pub`. Relative input paths resolve from the checkout; `~/` paths are expanded when configuring.
+The SSH key above is published at `/ssh/team.pub` when that filename is selected. The wizard copies it into `local/keys/`. Relative input paths resolve from the checkout; `~/` paths are expanded when configuring.
 
-Client settings are public. Review the presets and exclude credentials: Claude disables its sandbox, and Codex uses a relay with `danger-full-access`. Keep custom input files in `local/`. See the [configuration template](config/site.example.json).
+Client settings are public. Known credential fields are rejected, but still review the presets: Claude disables its sandbox, and Codex uses a relay with `danger-full-access`. Keep custom input files in `local/`. See the [configuration template](config/site.example.json).
 
 ### 4. Preview and deploy
 
