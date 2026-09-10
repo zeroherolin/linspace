@@ -44,6 +44,6 @@ Caddy serves immutable files through `/srv/linspace/current` and channel data fr
 
 Uploads replace files atomically. Clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry; connection and verification capacity are bounded.
 
-The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. It makes no network requests and sends no credentials to the site.
+The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. Optional `-u` validates and updates the selected provider's existing `base_url` in `config.toml`, preserving other settings and attempting rollback on a write failure. It makes no network requests and sends no credentials to the site.
 
 Deployment uses a lock, immutable releases and a switched symlink. Backups cover managed configuration, authorization, code, units and the previous pointer. Channel data is separate. [Paths and recovery](deployment.md).

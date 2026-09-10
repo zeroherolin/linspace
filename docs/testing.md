@@ -38,6 +38,6 @@ Test bundles also require `--internal-test`. Production uses issued site details
 | Codex | Installer, TOML/catalog compatibility, relative paths, auth backup/permissions/failure handling |
 | Stash | All channels and aliases, file/agent key discovery, replay/tamper rejection, clear and preserved data |
 
-Test non-root accounts and paths containing spaces. Compare source and published hashes. Exercise Codex's hidden token prompt and `-t` option with synthetic credentials; a stored login does not prove provider access or context capacity.
+Test non-root accounts and paths containing spaces. Compare source and published hashes. Exercise Codex's hidden token prompt, `-t`, optional `-u`, unchanged configuration without `-u`, and failed-write recovery with synthetic credentials. A stored login does not prove provider access or context capacity.
 
 Record the revision, runtimes, network route, failures and skipped checks. Restore initial data and remove test-created files, accounts and credentials. A loopback success alone does not prove public reachability.

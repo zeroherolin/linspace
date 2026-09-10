@@ -48,6 +48,16 @@ curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN'
 
 Replace the quoted placeholder; do not use angle brackets. The prompt avoids putting the token in shell history or command arguments.
 
+To also change the relay URL:
+
+```sh
+curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' -u 'https://relay.example/v1'
+```
+
+`-u` replaces the existing `base_url` for the provider selected by `model_provider` in `config.toml`. Comments and other providers are preserved. **Omit `-u` to leave `config.toml` untouched.** Download the configuration first; invalid or unsupported configuration stops the update before credentials are changed.
+
+Only `-u` needs Python 3.9+ with a TOML parser: Python 3.11+ includes it; Python 3.9/3.10 needs `tomli` (`python3-tomli` on Debian/Ubuntu). Changed files are backed up before replacement.
+
 The script writes `auth.json` under `CODEX_HOME`, or `~/.codex` by default, with mode `600`. It backs up existing credentials and writes only on the client. It does not contact the provider to validate the token. The preset uses file-based credential storage; custom keyring or provider settings may use other credentials.
 
 For ChatGPT account sign-in, use `codex login` instead. [Official authentication](https://learn.chatgpt.com/docs/auth).

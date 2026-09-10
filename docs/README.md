@@ -81,6 +81,14 @@ Save your provider's API token at the hidden prompt:
 curl -fsSL https://your-domain.cn/codex/auth | bash
 ```
 
+To save the token and change the relay URL together:
+
+```sh
+curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' -u 'https://relay.example/v1'
+```
+
+Without `-u`, the existing URL is unchanged. The option requires the downloaded configuration and Python with a TOML parser; see the [Codex guide](usage/codex.md#authenticate).
+
 Run `codex` from your project. For ChatGPT account sign-in, use `codex login` instead of the token script. [Codex guide](usage/codex.md).
 
 ## 5. Stash

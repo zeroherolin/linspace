@@ -9,17 +9,20 @@ linspace_auth_pending_backup=''
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'USAGE'
-Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN]
+Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE_URL]
   -t, --token TOKEN  API token for your configured provider
+  -u, --base-url URL Replace the selected provider's existing base_url in config.toml
   -h, --help         Show this help
 Without -t, read the token privately from the terminal.
 Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
 Existing credentials are backed up before replacement. Run without sudo.
+Without -u, config.toml is untouched. -u needs Python with tomllib or tomli.
 USAGE
 }
 
 main() {
     local token='' token_given=false config_dir auth_file escaped
+    local base_url='' url_given=false
     local backup='' LC_ALL=C
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -27,6 +30,10 @@ main() {
                 [[ $# -ge 2 ]] || fail 'Missing value after -t.'
                 [[ $token_given == false ]] || fail 'Pass the token only once.'
                 token=$2; token_given=true; shift 2 ;;
+            -u|--base-url)
+                [[ $# -ge 2 && -n $2 ]] || fail 'Missing value after -u.'
+                [[ $url_given == false ]] || fail 'Pass the base URL only once.'
+                base_url=$2; url_given=true; shift 2 ;;
             -h|--help) usage; return 0 ;;
             *) fail 'Unexpected argument. Use bash -s -- -t TOKEN, or --help.' ;;
         esac
@@ -46,6 +53,15 @@ main() {
     auth_file=$config_dir/auth.json
     [[ ! -L $auth_file ]] || fail 'Refusing to replace a symbolic-link auth.json.'
     [[ ! -e $auth_file || -f $auth_file ]] || fail 'auth.json must be a regular file.'
+
+    if [[ $url_given == true ]]; then
+        command -v python3 >/dev/null || fail '-u requires Python 3.9+ with tomllib or tomli.'
+        python3 - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
+@@include:src/codex/provider_auth.py@@
+provider_auth_main()
+LINSPACE_CODEX_PROVIDER_PY
+        return
+    fi
 
     # Keep the old credentials intact until a complete replacement is ready.
     trap 'rm -f -- "${linspace_auth_tmp:-}" "${linspace_auth_pending_backup:-}"' EXIT

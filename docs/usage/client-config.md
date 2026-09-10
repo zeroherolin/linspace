@@ -34,6 +34,6 @@ cp -p ~/.codex/models-1m.json ~/.codex/models-1m.json.bak
 
 Use an unused backup filename if `.bak` already exists. A failed direct download may leave a partial file: retry successfully or restore your backup before starting the client.
 
-Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) backs up and atomically replaces `auth.json`.
+Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) backs up and atomically replaces `auth.json`. Its optional `-u` also updates the selected provider's `base_url`; without `-u`, `config.toml` stays untouched.
 
 Restart the client after changing settings or the catalog. Site updates do not update client files automatically.

@@ -1,14 +1,19 @@
 import json
+import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build
+spec = importlib.util.spec_from_file_location('provider_auth', ROOT / 'src/codex/provider_auth.py')
+provider_auth = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(provider_auth)
 
 
 class CodexAuthTests(unittest.TestCase):
@@ -21,6 +26,7 @@ class CodexAuthTests(unittest.TestCase):
         self.script = build.render('src/codex/auth.sh.in', {'DOMAIN': 'auth.example.test'})
         # Use Codex's supported directory setting; never touch the test runner's credentials.
         self.env = dict(os.environ, CODEX_HOME=str(self.config_dir))
+        self.env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + self.env['PATH']
         # Shell startup hooks must not run through injected failing test commands.
         self.env.pop('BASH_ENV', None)
         self.env.pop('ENV', None)
@@ -133,3 +139,96 @@ class CodexAuthTests(unittest.TestCase):
                     self.assertEqual(backup.read_text(), 'old-test-value')
                     self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
                 failing.unlink()
+
+    def test_base_url_changes_only_selected_provider_and_preserves_formatting(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        original = ("model_provider = 'chosen'\r\n"
+                    "[model_providers.other]\r\nbase_url = 'https://old.example/v1'\r\n"
+                    "[model_providers.'chosen']\r\nbase_url = 'https://old.example/v1' # keep this\r\n"
+                    "wire_api = 'responses'\r\n")
+        config.write_bytes(original.encode())
+        self.auth_file.write_text('old credentials')
+        url = 'https://relay.example/v1'
+        for _ in range(2):
+            result = self.run_script('-t', 'new-token', '-u', url)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('new-token', result.stdout + result.stderr)
+        expected = original.replace("base_url = 'https://old.example/v1' # keep this", 'base_url = "https://relay.example/v1" # keep this')
+        self.assertEqual(config.read_bytes(), expected.encode())
+        self.assertEqual(json.loads(self.auth_file.read_text())['OPENAI_API_KEY'], 'new-token')
+        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        backups = list(self.config_dir.glob('config.toml.backup.*'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), original.encode())
+        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 1)
+        self.assertFalse(list(self.config_dir.glob('.codex-*')))
+        # An unchanged token must not short-circuit a different URL update.
+        result = self.run_script('-t', 'new-token', '-u', 'https://second.example/v1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'base_url = "https://second.example/v1" # keep this', config.read_bytes())
+        self.assertEqual(len(list(self.config_dir.glob('auth.json.backup.*'))), 1)
+
+    def test_omitting_url_keeps_even_invalid_config_byte_for_byte(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        config.write_bytes(b'not TOML; leave untouched\xff')
+        result = self.run_script('-t', 'new-token')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.read_bytes(), b'not TOML; leave untouched\xff')
+
+    def test_url_validation_and_missing_or_invalid_config_preserve_credentials(self):
+        self.config_dir.mkdir()
+        self.auth_file.write_text('old credentials')
+        config = self.config_dir / 'config.toml'
+        preset = (ROOT / 'config/codex/config.toml').read_bytes()
+        for url in ('', 'not-a-url', 'ftp://relay.example/v1', 'https://', 'https://user:pass@relay.example/v1', 'https://relay.example/v1#fragment', 'https://relay.example:wrong/v1'):
+            with self.subTest(url=url):
+                config.write_bytes(preset)
+                result = self.run_script('-t', 'new-token', '-u', url)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(config.read_bytes(), preset)
+                self.assertEqual(self.auth_file.read_text(), 'old credentials')
+        for data in (None, b'invalid TOML [', b'model_provider="missing"\n'):
+            with self.subTest(config=data):
+                if data is None:
+                    config.unlink()
+                else:
+                    config.write_bytes(data)
+                result = self.run_script('-t', 'new-token', '--base-url', 'https://relay.example/v1')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.auth_file.read_text(), 'old credentials')
+                self.assertEqual(config.read_bytes() if config.exists() else None, data)
+        self.assertFalse(list(self.config_dir.glob('*.backup.*')))
+
+    def test_url_update_rejects_symlink_config_and_duplicate_option(self):
+        self.config_dir.mkdir()
+        self.auth_file.write_text('old credentials')
+        outside = self.root / 'outside.toml'
+        outside.write_bytes((ROOT / 'config/codex/config.toml').read_bytes())
+        (self.config_dir / 'config.toml').symlink_to(outside)
+        result = self.run_script('-t', 'new-token', '-u', 'https://relay.example/v1')
+        self.assertNotEqual(result.returncode, 0)
+        result = self.run_script('-t', 'new-token', '-u', 'https://one.example/v1', '-u', 'https://two.example/v1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.auth_file.read_text(), 'old credentials')
+        self.assertEqual(outside.read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
+
+    def test_second_file_write_failure_restores_the_original_config(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        preset = (ROOT / 'config/codex/config.toml').read_bytes()
+        config.write_bytes(preset)
+        self.auth_file.write_text('old credentials')
+        replace = os.replace
+        def fail_auth(source, destination):
+            if destination == self.auth_file:
+                raise OSError('injected auth write failure')
+            replace(source, destination)
+        with patch.object(provider_auth.os, 'replace', side_effect=fail_auth):
+            with self.assertRaises(OSError):
+                provider_auth.save_pair(self.config_dir, 'https://relay.example/v1', 'new-token')
+        self.assertEqual(config.read_bytes(), preset)
+        self.assertEqual(self.auth_file.read_text(), 'old credentials')
+        self.assertFalse(list(self.config_dir.glob('.codex-*')))
