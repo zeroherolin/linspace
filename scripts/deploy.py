@@ -25,15 +25,30 @@ import verify
 MAIN = Path('/etc/caddy/Caddyfile')
 SITE = Path('/etc/caddy/sites-enabled/linspace.caddy')
 FRAGMENT = Path('/etc/caddy/linspace.d/stash.caddy')
-TOKEN = Path('/etc/linspace/stash-token')
+LEGACY_TOKEN = Path('/etc/linspace/stash-token')
+SIGNERS = Path('/usr/local/lib/stashd/allowed_signers')
 CURRENT = Path('/srv/linspace/current')
 STATE = Path('/var/lib/linspace/state.json')
 IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
-MANAGED = [MAIN, SITE, FRAGMENT, TOKEN, STATE, Path('/usr/local/lib/stashd/stashd.py'), Path('/etc/systemd/system/stashd.service'), Path('/etc/systemd/system/stashd.socket')]
+MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stashd/stashd.py'), Path('/etc/systemd/system/stashd.service'), Path('/etc/systemd/system/stashd.socket'), SIGNERS]
 
 
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
+
+
+def stop_writer():
+    """Stop existing writer units; a fresh host has neither unit yet."""
+    units = []
+    for unit in ('stashd.service', 'stashd.socket'):
+        state = run(['systemctl', 'show', '--property=LoadState', '--value', unit],
+                    text=True, capture_output=True).stdout.strip()
+        if not state:
+            raise RuntimeError(f'Cannot determine whether {unit} is installed')
+        if state != 'not-found':
+            units.append(unit)
+    if units:
+        run(['systemctl', 'stop', *units], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def atomic(path, data, mode=0o644, gid=0):
@@ -141,7 +156,9 @@ def snapshot(directory):
 
 def restore(directory):
     state = json.loads((directory / 'snapshot.json').read_text())
-    if {item['path'] for item in state['entries']} != {str(path) for path in MANAGED} or len(state['entries']) != len(MANAGED):
+    paths = {item['path'] for item in state['entries']}
+    current_paths = {str(path) for path in MANAGED}
+    if paths not in (current_paths, current_paths - {str(SIGNERS)}) or len(paths) != len(state['entries']):
         raise ValueError('Backup does not describe exactly the managed files')
     for index, item in enumerate(state['entries']):
         if item['exists'] and hashlib.sha256((directory / str(index)).read_bytes()).hexdigest() != item['sha256']:
@@ -150,7 +167,7 @@ def restore(directory):
         target = Path(state['current'])
         if target.is_absolute() or '..' in target.parts or not target.parts or target.parts[0] != 'releases' or not (CURRENT.parent / target).is_dir():
             raise ValueError('The previous public release is missing or invalid; no services changed')
-    subprocess.run(['systemctl', 'stop', 'stashd.service', 'stashd.socket'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    stop_writer()
     for index, item in enumerate(state['entries']):
         path = Path(item['path'])
         if path not in MANAGED:
@@ -159,6 +176,8 @@ def restore(directory):
             atomic(path, (directory / str(index)).read_bytes(), item['mode'], item['gid'])
         else:
             path.unlink(missing_ok=True)
+    if str(SIGNERS) not in paths and SIGNERS in MANAGED:
+        SIGNERS.unlink(missing_ok=True)
     if state['current'] is not None:
         swap_link(state['current'])
     else:
@@ -168,21 +187,24 @@ def restore(directory):
         run(['systemctl', 'enable', 'stashd.socket'], stdout=subprocess.DEVNULL)
     else:
         subprocess.run(['systemctl', 'disable', 'stashd.socket'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if state['stash_active']:
-        run(['systemctl', 'start', 'stashd.socket'])
+    # Restore the HTTP authentication boundary before starting a legacy writer.
     if state['caddy_active']:
         run(['caddy', 'validate', '--config', MAIN], stdout=subprocess.DEVNULL)
         run(['systemctl', 'reload', 'caddy'])
     else:
         run(['systemctl', 'stop', 'caddy'])
-    print(f'Restored configuration, token, code, and release pointer from {directory}. Stash channel data was not changed.')
+    if state['stash_active']:
+        run(['systemctl', 'start', 'stashd.socket'])
+    print(f'Restored managed configuration, authentication, code, and release pointer from {directory}. Stash channel data was not changed.')
 
 
 def apply(release, args):
     meta, release_id = checked_release(release)
+    if meta.get('stash_auth') != 'ssh-signature-v1':
+        raise ValueError('Rebuild this release for SSH signature authentication; use rollback to restore a legacy installation')
     if meta['internal_test'] and not args.internal_test:
         raise ValueError('An internal-test build requires --internal-test; rebuild with filed site details for production')
-    print(f'Domain: {meta["domain"]}\nPublic release: /srv/linspace/releases/{release_id}\nCaddy: {SITE}\nStash token: {TOKEN}\nMode: ' + ('internal test' if meta['internal_test'] else 'production'))
+    print(f'Domain: {meta["domain"]}\nPublic release: /srv/linspace/releases/{release_id}\nCaddy: {SITE}\nStash authorized SSH keys: {meta["stash_key_count"]}\nMode: ' + ('internal test' if meta['internal_test'] else 'production'))
     if args.dry_run:
         print('Plan: validate build, install missing dependencies, back up managed files, activate release, reload services, verify HTTPS. No host changes made.')
         return
@@ -198,7 +220,7 @@ def apply(release, args):
         raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
     fresh_caddy = shutil.which('caddy') is None
     # Syntax and checksums are checked before installing packages or changing services.
-    for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('*')):
+    for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('upload*')) + [release / 'site/stash/clear', release / 'site/codex/auth']:
         if script.is_file():
             run(['bash', '-n', script])
     compile((release / 'service/stashd.py').read_text(), 'stashd.py', 'exec')
@@ -230,18 +252,6 @@ def apply(release, args):
                     raise ValueError('Existing stash account is not a dedicated service account')
             except KeyError:
                 run(['useradd', '--system', '--user-group', '--home-dir', '/var/lib/stashd', '--no-create-home', '--shell', '/usr/sbin/nologin', 'stash'])
-            current_hash = None
-            if FRAGMENT.exists():
-                matches = re.findall(r'^\s*stash\s+(\$2[aby]\$\S+)\s*$', FRAGMENT.read_text(), re.M)
-                if len(matches) != 1:
-                    raise ValueError('Cannot find exactly one existing stash token hash; inspect the fragment before retrying')
-                current_hash = matches[0]
-            new_token = None
-            if current_hash is None or args.rotate_token:
-                new_token = secrets.token_hex(24)
-                current_hash = run(['caddy', 'hash-password', '--bcrypt-cost', '10'], input=new_token + '\n', text=True, capture_output=True).stdout.strip()
-                if not re.fullmatch(r'\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}', current_hash):
-                    raise ValueError('Caddy returned an invalid password hash')
             public_release = Path('/srv/linspace/releases') / release_id
             public_release.parent.mkdir(parents=True, exist_ok=True)
             if public_release.is_symlink():
@@ -259,30 +269,30 @@ def apply(release, args):
                     for path in [staged, *staged.rglob('*')]:
                         path.chmod(0o755 if path.is_dir() else 0o644)
                     os.replace(staged, public_release)
+            # Never pair the new proxy routes with the old unauthenticated writer.
+            stop_writer()
             atomic(SITE, (release / 'config/Caddyfile').read_bytes())
-            atomic(FRAGMENT, (release / 'config/stash.caddy.template').read_text().replace('__HASH__', current_hash).encode(), 0o640, caddy_gid)
+            atomic(FRAGMENT, (release / 'config/stash.caddy.template').read_bytes(), 0o640, caddy_gid)
             atomic(MAIN, main_text.encode())
+            atomic(SIGNERS, (release / 'config/stash.allowed_signers').read_bytes())
             for name, destination in [('stashd.py', '/usr/local/lib/stashd/stashd.py'), ('stashd.service', '/etc/systemd/system/stashd.service'), ('stashd.socket', '/etc/systemd/system/stashd.socket')]:
                 atomic(Path(destination), (release / 'service' / name).read_bytes())
-            if new_token:
-                TOKEN.parent.mkdir(parents=True, exist_ok=True)
-                TOKEN.parent.chmod(0o700)
-                atomic(TOKEN, (new_token + '\n').encode(), 0o600)
+            # The snapshot retains the old secret solely for an explicit rollback.
+            LEGACY_TOKEN.unlink(missing_ok=True)
             swap_link('releases/' + release_id)
             run(['caddy', 'validate', '--config', MAIN], stdout=subprocess.DEVNULL)
             run(['systemd-analyze', 'verify', '/etc/systemd/system/stashd.socket', '/etc/systemd/system/stashd.service'], stdout=subprocess.DEVNULL)
             run(['systemctl', 'daemon-reload'])
-            run(['systemctl', 'stop', 'stashd.service', 'stashd.socket'])
+            run(['systemctl', 'enable', '--now', 'caddy'], stdout=subprocess.DEVNULL)
+            run(['systemctl', 'reload', 'caddy'])
             run(['systemctl', 'enable', '--now', 'stashd.socket'], stdout=subprocess.DEVNULL)
             for attempt in range(20):
-                response = subprocess.run(['curl', '-q', '-sS', '--max-time', '2', '--unix-socket', '/run/stashd/stashd.sock', '-o', '/dev/null', '-w', '%{http_code}', 'http://stashd/'], text=True, capture_output=True)
+                response = subprocess.run(['curl', '-q', '-sS', '--max-time', '2', '--unix-socket', '/run/stashd/ssh.sock', '-o', '/dev/null', '-w', '%{http_code}', 'http://stashd/'], text=True, capture_output=True)
                 if response.returncode == 0 and response.stdout == '405':
                     break
                 time.sleep(.25)
             else:
                 raise RuntimeError('stashd did not answer on its Unix socket')
-            run(['systemctl', 'enable', '--now', 'caddy'], stdout=subprocess.DEVNULL)
-            run(['systemctl', 'reload', 'caddy'])
             atomic(STATE, (json.dumps({**meta, 'release_id': release_id, 'backup': str(backup)}, indent=2) + '\n').encode(), 0o600)
         except BaseException:
             print(f'Deployment failed; restoring {backup}', file=sys.stderr)
@@ -291,7 +301,7 @@ def apply(release, args):
             except Exception as error:
                 print(f'Automatic restore failed: {error}. Backup retained at {backup}', file=sys.stderr)
             raise
-    print(f'Installed release {release_id}. ' + (f'Token saved to {TOKEN} (root-only).' if new_token else 'Existing stash token retained.'))
+    print(f'Installed release {release_id}. Stash uses SSH signatures ({meta["stash_key_count"]} authorized keys); no token is required.')
     if args.skip_verify:
         print('HTTPS verification skipped explicitly. Run ./linspace verify before declaring the site ready.')
         return
@@ -311,7 +321,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--release', type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--rotate-token', action='store_true')
     parser.add_argument('--adopt-existing', action='store_true')
     parser.add_argument('--internal-test', action='store_true')
     parser.add_argument('--local', action='store_true', help='verify via loopback with normal TLS validation')

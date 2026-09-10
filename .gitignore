@@ -6,6 +6,8 @@ __pycache__/
 .DS_Store
 .env
 .env.*
+auth.json
+auth.json.backup.*
 !.env.example
 *.pem
 *.key

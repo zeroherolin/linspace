@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,22 @@ import siteconfig
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_stash_keys_default_to_published_key_and_allow_independent_authorization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key = root / 'key'
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'private-comment', '-f', str(key)], check=True)
+            expected = [' '.join(Path(str(key) + '.pub').read_text().split()[:2])]
+            for fields, wanted in [({'ssh_public_key_file': 'key.pub'}, expected),
+                                   ({'ssh_public_key_file': 'key.pub', 'stash_public_key_files': []}, []),
+                                   ({'stash_public_key_files': ['key.pub', str(root / 'key.pub')]}, expected)]:
+                with self.subTest(fields=fields):
+                    config, published, _, _ = siteconfig.load(self.config(root, **fields), root=root)
+                    self.assertEqual(siteconfig.stash_keys(config, published, root), wanted)
+            for value in ['key.pub', [None], [''], ['key'], ['missing.pub'], ['key.pub'] * 65]:
+                with self.subTest(value=value), self.assertRaises((ValueError, OSError)):
+                    siteconfig.load(self.config(root, stash_public_key_files=value), root=root)
+
     def test_domains_are_normalized(self):
         self.assertEqual(siteconfig.domain_name('Tools.My-Domain.cn'), 'tools.my-domain.cn')
         self.assertEqual(siteconfig.domain_name('例子.cn'), 'xn--fsqu00a.cn')

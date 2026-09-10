@@ -2,7 +2,7 @@
 Description=Socket for stashd (linspace stash)
 
 [Socket]
-ListenStream=/run/stashd/stashd.sock
+ListenStream=/run/stashd/ssh.sock
 SocketUser=stash
 SocketGroup=caddy
 SocketMode=0660

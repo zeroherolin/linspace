@@ -2,36 +2,37 @@
 
 ## Local checks
 
-Use Python 3.9+, Bash and OpenSSH client tools. Python 3.11+ includes the TOML parser. Older versions need `python3-tomli` on Debian/Ubuntu, or `python -m pip install -r requirements.txt` inside a virtual environment.
+Use Python 3.9+, Bash, curl, OpenSSL and OpenSSH 8.2+. Python below 3.11 also needs `tomli`, installed from `requirements.txt` in a virtual environment or as `python3-tomli` on Debian/Ubuntu.
 
 ```sh
 ./linspace check
-# With Make and a selected interpreter:
+```
+
+To select a Python interpreter:
+
+```sh
 make check PYTHON=python3.12
 ```
 
-Checks need no personal configuration or root access. The Stash tests require local Unix sockets. CI runs on Python 3.9 and 3.12. See [Testing](docs/testing.md) for coverage and live release checks.
+Checks need local Unix sockets and loopback HTTPS, but no personal configuration or root access. CI uses Python 3.9 and 3.12. [Testing details](docs/testing.md).
 
 ## Source conventions
 
-- `config/`: public presets, schema and templates.
-- `src/`: runtime implementation.
-- `scripts/`: configuration, build, deployment and checks.
-- `docs/`: user and maintainer guides.
-- `packaging/`: bundle README templates.
+Edit `src/`, `scripts/`, `config/`, `docs/` and `packaging/`; do not edit generated `dist/`. Keep operator-specific inputs in ignored `local/`.
 
-Edit source files, not generated `dist/`. Keep deployment-specific values in ignored `local/`.
+- Preserve feature order: **SSH → Mihomo → Claude Code → Codex → Stash**.
+- Add routes, passive verification, behavior tests and usage documentation for new endpoints.
+- Keep credentials, machine-specific paths, project trust and UI history out of public presets.
+- Use relative paths for companion client files.
+- Write English user guides with short, standalone commands. Keep loops, functions and recovery logic in tools, not copy-and-paste setup blocks.
+- Keep private deployment details and session history outside the repository.
 
-Use the feature order **SSH → Mihomo → Claude Code → Codex → Stash** throughout commands and documentation. New endpoints need an explicit Caddy route, passive verification, behavior tests and a usage guide. Shared presets must not contain credentials, project trust, UI history or machine-specific paths. Companion client files use relative paths.
-
-Documentation describes the current project and reproducible procedures. Keep private hostnames, personal endpoint names, development-session narratives and one-off deployment results outside the repository. Use generic examples; preserve required attribution and authoritative upstream references.
-
-Templates expand `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When adding configuration fields, test both new and existing profiles. Check Markdown links, heading anchors and command examples.
+Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When changing configuration fields, cover both new and existing profiles. Check Markdown links, anchors and shell examples.
 
 ## Versions and release validation
 
-Mihomo is pinned to v1.19.27. Update engine checksums and runtime expectations in install/process/sub together. GeoIP is defined in `assets/manifest.json`; review provenance and licensing before replacing it. Claude Code and Codex installer routes follow official upstream URLs.
+Mihomo is pinned to v1.19.27. Update engine checksums and runtime expectations in install/process/sub together. Review the provenance and checksums in `assets/manifest.json` when changing GeoIP. Claude and Codex installers redirect to their official upstream scripts.
 
-Refresh the Codex catalog with `python3 scripts/codex_catalog.py --refresh` using a reviewed official CLI. Review both model entries and their [source record](config/codex/README.md). Normal builds require neither Codex nor network access.
+Update the Codex catalog through its [refresh procedure](config/codex/README.md#refresh-and-validate). Normal builds need neither Codex nor network access.
 
-Identical inputs produce identical archives within the same Python/zlib runtime. Distribute the checksum for the actual archive. Complete the [release checks](docs/testing.md#release-validation) before publishing; local tests do not establish public TLS, authentication or provider capacity.
+Identical inputs produce identical archives within the same Python/zlib runtime. Publish checksums for the actual archives. Complete [release validation](docs/testing.md#release-validation) before publishing; local checks do not prove public connectivity or provider access.

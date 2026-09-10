@@ -1,5 +1,8 @@
 #:schema https://developers.openai.com/codex/config-schema.json
 
+# Keep local API credentials in auth.json under the Codex configuration directory.
+cli_auth_credentials_store = "file"
+
 # Model and companion catalog (relative to this file).
 model = "gpt-6-astra"
 model_provider = "openai_next"

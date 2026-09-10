@@ -1,6 +1,6 @@
 # Claude Code
 
-Run as the account that will use Claude Code on supported Linux or macOS. You need curl and access to the site and Anthropic's services. See the [official setup requirements](https://code.claude.com/docs/en/setup).
+Run as the account that will use Claude Code on supported Linux or macOS. You need Bash, curl and access to the site and Anthropic's services.
 
 ## Install and update
 
@@ -9,12 +9,28 @@ curl -fsSL https://your-domain.cn/claude/install | bash
 claude --version
 ```
 
-The site redirects to the official `https://claude.ai/install.sh`; it does not mirror or pin it. Follow the installer PATH instructions. Native installs support automatic updates; use `claude update` for an immediate update or `claude doctor` for diagnostics.
+The site redirects to the [official installer](https://code.claude.com/docs/en/setup). Follow its PATH instructions. Use `claude update` to update or `claude doctor` to diagnose an installation.
 
-## Configure and sign in
+## Configure
 
-`/claude/config` serves the JSON selected by the operator's `claude_settings_file`. The [bundled preset](../../config/claude/settings.json) selects `claude-fable-5-1[1m]`, Chinese responses, `xhigh` effort, tool permissions, plugin and UI preferences. Its built-in sandbox is disabled. Authentication credentials are not included.
+These commands replace the current settings. For an existing installation or a custom directory, read [configuration files](client-config.md) first.
 
-Use the [shared configuration procedure](client-config.md) with `client=claude`. It backs up and replaces `settings.json` under `CLAUDE_CONFIG_DIR`, or `~/.claude` by default. Review the file first; replacement does not merge personal preferences. See [configuration directories](https://code.claude.com/docs/en/claude-directory) and [settings precedence](https://code.claude.com/docs/en/settings).
+```sh
+install -d -m 700 ~/.claude
+curl -fsSL https://your-domain.cn/claude/config -o ~/.claude/settings.json
+chmod 600 ~/.claude/settings.json
+```
 
-Run `claude` in your project and complete normal authentication. Publishing settings does not sign users in or update existing clients automatically. For connection problems, configure the [Mihomo proxy](mihomo.md#use-and-restart) first. If the site is unavailable, use the official installer URL and obtain the generated configuration from the operator through a trusted transfer.
+Review the [bundled preset](../../config/claude/settings.json) before applying it. It selects `claude-fable-5-1[1m]`, Chinese responses and `xhigh` effort, and disables Claude's built-in sandbox. The operator may publish different settings.
+
+## Sign in and use
+
+From your project directory:
+
+```sh
+claude
+```
+
+Complete authentication when prompted. Shared settings contain no credentials. If a proxy is needed, [enable it in the current terminal](mihomo.md#use-and-restart) first.
+
+Restart Claude after replacing settings. [Official settings reference](https://code.claude.com/docs/en/settings).

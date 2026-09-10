@@ -18,7 +18,7 @@ except ImportError:  # Python 3.9/3.10 on older deployment hosts.
         tomllib = None
 
 ROOT = Path(__file__).resolve().parents[1]
-FIELDS = ('domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file')
+FIELDS = ('domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'stash_public_key_files')
 
 
 def domain_name(value, internal=False):
@@ -99,6 +99,13 @@ def load(path, internal=False, root=ROOT):
     if config['ssh_public_key_file']:
         p = Path(config['ssh_public_key_file']).expanduser()
         key_data = public_key((p if p.is_absolute() else root / p).read_bytes())
+    paths = raw.get('stash_public_key_files')
+    if paths is not None:
+        if not isinstance(paths, list) or len(paths) > 64 or any(not isinstance(p, str) or not p for p in paths):
+            raise ValueError('stash_public_key_files must be null (reuse the SSH key) or an array of up to 64 public key paths; [] disables writes')
+        paths = [str(Path(p).expanduser()) if p.startswith('~') else p for p in paths]
+    config['stash_public_key_files'] = paths
+    stash_keys(config, key_data, root)
     p = Path(config['claude_settings_file']).expanduser()
     if not config['claude_settings_file']:
         raise ValueError('claude_settings_file must point to a JSON settings file')
@@ -118,6 +125,16 @@ def load(path, internal=False, root=ROOT):
     _, catalog = codex_catalog.load_catalog()
     codex_catalog.validate_settings(codex_settings, catalog)
     return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode(), codex
+
+
+def stash_keys(config, published_key, root=ROOT):
+    paths = config.get('stash_public_key_files')
+    keys = [published_key] if paths is None and published_key else []
+    for value in paths or []:
+        path = Path(value)
+        keys.append(public_key((path if path.is_absolute() else root / path).read_bytes()))
+    # Comments and operator paths do not belong in the authorization protocol.
+    return sorted({' '.join(key.decode().split()[:2]) for key in keys})
 
 
 def page(config):

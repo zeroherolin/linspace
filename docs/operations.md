@@ -1,6 +1,6 @@
 # Operations
 
-Run commands from the web-server checkout. Keep `local/site.json`, the public key and custom client configuration files in ignored `local/` storage.
+Run server commands from the web-server checkout. Keep operator settings and inputs in ignored `local/` files.
 
 ## Update and reconfigure
 
@@ -10,55 +10,60 @@ git pull --ff-only
 sudo ./linspace deploy
 ```
 
-Resolve source changes before pulling. Python 3.9/3.10 requires `python3-tomli`. Change settings with `./linspace configure`, then redeploy. Use the same `--config` path for a named profile. Re-save profiles containing literal `~/` input paths as the intended account before deploying with sudo.
+Resolve source edits before pulling. To change site settings:
 
-A new domain needs DNS and filing first. Changing `ssh_public_key_name` publishes the key at the new filename and removes the old URL. Clients must update their URLs and explicitly reapply shared configuration. Installations do not synchronize tokens, content or settings.
+```sh
+./linspace configure
+sudo ./linspace deploy
+```
+
+A new domain needs DNS and filing first. Changing the published SSH filename changes its URL. Each installation has independent settings, authorized keys and channel data.
 
 ## Shared client configuration
 
-Select the intended `claude_settings_file` and `codex_config_file` in the site profile. To use bundled presets, select `config/claude/settings.json` and `config/codex/config.toml`. If published settings differ from the expected content, compare the selected input and active release.
+Select `claude_settings_file` and `codex_config_file` in the site profile, then redeploy. Clients must download the new files and restart their tools. See [client configuration files](usage/client-config.md).
 
-Refresh Codex model metadata through the [catalog procedure](../config/codex/README.md#refresh-and-validate). Clients save `/codex/models_1m` beside `config.toml` as `models-1m.json`, then restart Codex. Configuration downloads respect `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
+Refresh Codex model metadata with the [catalog procedure](../config/codex/README.md#refresh-and-validate). Client `auth.json` files and their backups must never be published.
 
-## Token
+## Stash authorized keys
 
-Read the token and store it in a password manager:
+Set `stash_public_key_files` in the site profile:
 
-```sh
-sudo cat /etc/linspace/stash-token
-```
+| Value | Authorization |
+| --- | --- |
+| `null` or omitted | Reuse `ssh_public_key_file` |
+| `["local/laptop.pub", "local/worker.pub"]` | Use these keys independently of SSH publishing |
+| `[]` | Disable uploads and clear; reads remain public |
 
-To issue a replacement:
+Up to 64 OpenSSH public keys are accepted. Each can upload to any channel and clear all channels. Redeploy after changes; `/stash/keys` lists the active keys without comments or local paths.
 
-```sh
-sudo ./linspace deploy --rotate-token
-sudo cat /etc/linspace/stash-token
-```
+To rotate a key, authorize both keys, deploy and test the new key, then remove the old one and deploy again. Changing a reused SSH key also changes Stash authorization; changing only its published filename does not.
 
-All writers and clear clients need the replacement token. An adopted installation may have only a bcrypt hash; use its existing token or rotate to create the standard token file.
+Legacy tokens are rejected after upgrading. Rollback backups may retain the old token. [Migration and recovery](deployment.md).
 
 ## Diagnostics
 
 ```sh
 ./linspace verify
-./linspace verify --local
 sudo systemctl status caddy stashd.socket stashd.service
-sudo journalctl -u caddy -n 80 --no-pager
-sudo journalctl -u stashd.service -u stashd.socket -n 80 --no-pager
+sudo journalctl -u caddy -n 50 --no-pager
+sudo journalctl -u stashd.service -n 50 --no-pager
 ```
 
-Verification leaves Stash data unchanged. `--local` checks loopback using the configured hostname and TLS certificate; it does not establish public access. The direct writer check should return 405:
+To distinguish a source-server problem from a public-network problem:
 
 ```sh
-sudo curl -sS --unix-socket /run/stashd/stashd.sock -o /dev/null -w '%{http_code}\n' http://stashd/
+./linspace verify --local
 ```
+
+Loopback verification retains TLS validation but does not prove public access. All verification commands leave channel data unchanged.
 
 ## Backups and cleanup
 
-Use [deployment recovery](deployment.md#failure-and-recovery) for rollback. Releases and backups are retained without automatic pruning. Keep the active release and every release referenced by a retained backup's `snapshot.json`. Preserve Caddy certificate storage.
+Use [rollback](deployment.md#failure-and-recovery) to restore managed state. Backups and releases are retained until deliberately removed. Keep the active release, releases referenced by retained backups, and Caddy certificate storage.
 
-Stash files are `/var/lib/stashd/download0` through `download7`. Removing a file makes that channel return 404 without restarting services. Uploading an empty file instead returns 200 with an empty body. The public clear client removes all eight channels.
+Channel files are `/var/lib/stashd/download0` through `download7`. A removed channel returns 404; an uploaded empty file returns 200. Use the [Stash client](usage/stash.md#clear) to clear all channels.
 
 ## Remove the site
 
-Save required tokens, channel data and backups. Remove the managed site file and its explicit import, or only the file when a shared wildcard import covers it. Validate and reload Caddy, then stop/disable `stashd.socket` and `stashd.service`. Remove only this installation's files/account, preserving unrelated sites and certificate storage. There is no automatic uninstall command.
+Save needed configuration, channel data and backups. Remove the managed Caddy site and its explicit import, preserving shared wildcard imports and other sites. Validate and reload Caddy, then stop and disable `stashd.socket` and `stashd.service`. Remove only this installation's files and account. There is no automatic uninstall command.

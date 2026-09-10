@@ -2,40 +2,48 @@
 
 ## Layers
 
-| Layer | Responsibility |
+| Location | Responsibility |
 | --- | --- |
-| `config/` + ignored `local/` | Schema, templates, defaults, operator inputs |
-| `scripts/siteconfig.py` | Validate domain/filing text, SSH key, Claude JSON and Codex TOML |
-| `scripts/codex_catalog.py` | Check catalog integrity, model bounds and TOML consistency; refresh from official CLI metadata |
-| `scripts/build.py` | Render URLs/scripts, verify GeoIP, create checksummed bundles |
-| `scripts/deploy.py` | Snapshot, publish, activate services, verify, recover |
-| Caddy | HTTPS, route allowlists, caching, authentication and request limits |
-| `src/mihomo/`, `src/stash/` | Target proxy tools and the server-side text writer |
+| `config/` and ignored `local/` | Templates, public presets and operator inputs |
+| `scripts/siteconfig.py` | Domain, filing, public-key and client-setting validation |
+| `scripts/codex_catalog.py` | Catalog integrity, consistency and refresh |
+| `scripts/build.py` | Render files and create checksummed bundles |
+| `scripts/deploy.py` | Back up, activate, verify and recover |
+| Caddy | HTTPS, route allowlists, caching and body limits |
+| `src/mihomo/` | Client proxy tools |
+| `src/codex/` | Local API credential setup |
+| `src/stash/` | Signed upload clients and the text writer |
 
-Claude settings are serialized as JSON; Codex TOML preserves its bytes and comments. Codex checks also cover catalog integrity, selected model/provider, supported reasoning and compaction bounds; they do not replace the full product schema. Shared presets are configurable, and model metadata follows the [catalog policy](../config/codex/README.md). Both client files are public; credentials, project trust and UI history are excluded. The catalog filename resolves beside `config.toml`. The wizard expands user-home input paths before saving so sudo does not redirect them. Release metadata excludes operator input paths and stash tokens.
+Claude JSON is serialized during build; Codex TOML preserves formatting. Catalog checks enforce the [recorded metadata policy](../config/codex/README.md), not the complete product schema. Credentials and operator input paths are excluded from public releases.
 
 ## Public routes
 
 | Route | Behavior |
 | --- | --- |
-| `/` | Configured title and filing footer |
-| `/ssh/<ssh_public_key_name>` | Public key under the configured filename; default `key.pub` |
-| `/mihomo/install`, `/mihomo/sub`, `/mihomo/restart` | Self-contained target scripts |
-| `/mihomo/assets/geoip-<sha256>.dat` | Pinned data, immutable caching |
+| `/` | Site title and filing footer |
+| `/ssh/<ssh_public_key_name>` | Selected public key; default name `key.pub` |
+| `/mihomo/install`, `/mihomo/sub`, `/mihomo/restart` | Client scripts |
+| `/mihomo/assets/geoip-<sha256>.dat` | Pinned GeoIP; immutable caching |
 | `/claude/install` | 302 to `https://claude.ai/install.sh` |
-| `/claude/config` | Public JSON as plain text |
+| `/claude/config` | Public JSON |
 | `/codex/install` | 302 to `https://chatgpt.com/codex/install.sh` |
-| `/codex/config` | Public TOML as plain text |
-| `/codex/models_1m` | JSON model catalog as plain text |
-| `/stash/upload0` … `/stash/upload7` | Upload clients |
-| `/stash/download0` … `/stash/download7` | Public GET/HEAD; authenticated PUT replaces content |
+| `/codex/config`, `/codex/models_1m` | Public TOML and model catalog |
+| `/codex/auth` | Script that writes credentials on the client |
+| `/stash/upload0`–`7` | Upload scripts |
+| `/stash/download0`–`7` | Public GET/HEAD; signed PUT replaces content |
 | `/stash/upload`, `/stash/download` | Channel-0 aliases |
-| `/stash/clear` | GET serves the client; authenticated POST clears all channels |
+| `/stash/keys` | Authorized public keys for client discovery |
+| `/stash/challenge` | GET issues a signing challenge; HEAD checks availability |
+| `/stash/clear` | GET serves the script; signed POST clears all channels |
 
-Unknown routes return 404. Public text uses `no-store` and `nosniff`. Claude and Codex installers remain upstream; the site neither mirrors nor pins them.
+Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Installer redirects do not mirror or pin upstream installers.
 
 ## State and isolation
 
-Caddy reads static files through `/srv/linspace/current` and stash data from `/var/lib/stashd`. Authenticated writes pass through a Unix socket to `stashd`, a dedicated systemd account with no TCP listener. Atomic file replacement prevents partial reads; clearing eight files is sequential, not transactional against concurrent uploads. There is no history, expiry, or rate limit.
+Caddy serves immutable files through `/srv/linspace/current` and channel data from `/var/lib/stashd`. The dedicated `stash` account verifies writes through `/run/stashd/ssh.sock`; it has no TCP listener. See the [signature protocol](stash-auth.md).
 
-A deployment lock protects activation and rollback. Immutable public files switch through a symlink; snapshots cover managed configuration, token, service code/units, and the previous pointer. Channel data is independent. Paths and recovery limits: [deployment](deployment.md).
+Uploads replace files atomically. Clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry; connection and verification capacity are bounded.
+
+The Codex auth script backs up and atomically replaces local `auth.json` with mode `600`. It makes no network requests and sends no credentials to the site.
+
+Deployment uses a lock, immutable releases and a switched symlink. Backups cover managed configuration, authorization, code, units and the previous pointer. Channel data is separate. [Paths and recovery](deployment.md).

@@ -9,6 +9,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CliTests(unittest.TestCase):
+    def test_configure_stash_keys_and_disable_writes_without_changing_key_publishing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key = root / 'key'
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)], check=True)
+            profile = root / 'site.json'
+            profile.write_text(json.dumps({'domain': 'keys.example.test', 'site_name': 'Keys', 'icp_number': '', 'ssh_public_key_file': ''}))
+            command = [sys.executable, str(ROOT / 'scripts/cli.py'), 'configure', '--config', str(profile), '--internal-test', '--non-interactive', '--stash-public-key-files']
+            for paths in ([str(key) + '.pub'], []):
+                result = subprocess.run(command + paths, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                saved = json.loads(profile.read_text())
+                self.assertEqual(saved['stash_public_key_files'], paths)
+                self.assertEqual(saved['ssh_public_key_file'], '')
+
     def test_configure_upgrades_old_profile_and_rejects_invalid_codex_without_replacing_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -33,7 +48,8 @@ class CliTests(unittest.TestCase):
             self.assertLess(paths.index('claude/config'), paths.index('codex/install'))
             self.assertLess(paths.index('codex/install'), paths.index('codex/config'))
             self.assertLess(paths.index('codex/config'), paths.index('codex/models_1m'))
-            self.assertLess(paths.index('codex/models_1m'), paths.index('stash/upload0'))
+            self.assertLess(paths.index('codex/models_1m'), paths.index('codex/auth'))
+            self.assertLess(paths.index('codex/auth'), paths.index('stash/upload0'))
             custom.write_text('not valid TOML')
             result = command('configure', '--non-interactive', '--codex-config-file', str(custom))
             self.assertNotEqual(result.returncode, 0)

@@ -18,7 +18,7 @@ class VerificationTests(unittest.TestCase):
             return 302, {'location': {'/claude/install': 'https://claude.ai/install.sh', '/codex/install': 'https://chatgpt.com/codex/install.sh'}[path]}
         if path == '/not-published':
             return 404, {}
-        if method == 'PUT':
+        if method in ('PUT', 'POST'):
             return 401, {}
         asset = '/assets/' in path
         return 200, {'content-type': 'text/html' if path == '/' else 'application/octet-stream' if asset else 'text/plain', 'cache-control': 'immutable' if asset else 'no-store', 'x-content-type-options': 'nosniff'}
@@ -30,7 +30,8 @@ class VerificationTests(unittest.TestCase):
         self.assertTrue(any(call.args[1] == '/codex/config' for call in probe.call_args_list))
         self.assertTrue(any(call.args[1] == '/codex/install' for call in probe.call_args_list))
         self.assertTrue(any(call.args[1] == '/codex/models_1m' for call in probe.call_args_list))
-        for broken_path in ['/codex/config', '/codex/models_1m', '/codex/install']:
+        self.assertTrue(any(call.args[1] == '/codex/auth' for call in probe.call_args_list))
+        for broken_path in ['/codex/config', '/codex/models_1m', '/codex/auth', '/codex/install']:
             def broken(domain, path, *args, **kwargs):
                 if path == broken_path:
                     return (302, {'location': 'https://wrong.example.test/'}) if path.endswith('/install') else (404, {})

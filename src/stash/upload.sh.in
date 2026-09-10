@@ -1,42 +1,8 @@
 #!/usr/bin/env bash
-# Upload one local UTF-8 text file (at most 1 MiB) to channel __CHANNEL__ of @@DOMAIN@@/stash.
-# Usage: curl -fsSL https://@@DOMAIN@@/stash/upload__CHANNEL__ | bash -s -- FILE [-t TOKEN]
+# Usage: curl -fsSL https://@@DOMAIN@@/stash/upload__CHANNEL__ | bash -s -- FILE
 set -Eeuo pipefail
-CHANNEL=__CHANNEL__
-BASE=https://@@DOMAIN@@/stash
-MAX_SIZE=1048576
-fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
-usage() { printf 'Usage: curl -fsSL %s/upload%s | bash -s -- FILE [-t TOKEN]\nThe token may also come from $STASH_TOKEN or an interactive prompt.\n' "$BASE" "$CHANNEL"; }
-file=''
-token=${STASH_TOKEN:-}
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -t|--token) [[ $# -ge 2 ]] || fail 'Missing value after -t.'; token=$2; shift 2 ;;
-        -h|--help) usage; exit 0 ;;
-        -*) fail "Unknown option: $1 (put -- after bash -s so that options reach this script)." ;;
-        *) [[ -z $file ]] || fail 'Exactly one file is accepted.'; file=$1; shift ;;
-    esac
-done
-[[ -n $file ]] || { usage >&2; exit 1; }
-[[ -f $file ]] || fail "$file is not a regular file."
-size=$(wc -c < "$file" | tr -d ' ')
-[[ $size -le $MAX_SIZE ]] || fail "$file is $size bytes; the limit is $MAX_SIZE bytes (1 MiB)."
-tr -d '\000' < "$file" | cmp -s - "$file" || fail "$file contains NUL bytes; only text is accepted."
-iconv -f UTF-8 -t UTF-8 "$file" > /dev/null 2>&1 || fail "$file is not valid UTF-8."
-if [[ -z $token ]]; then
-    ( : < /dev/tty ) 2> /dev/null || fail 'No token. Pass -t TOKEN, set STASH_TOKEN, or run from a terminal.'
-    IFS= read -rs -p 'Stash token: ' token < /dev/tty
-    printf '\n' >&2
-fi
-[[ $token =~ ^[0-9a-f]{48}$ ]] || fail 'Expected a 48-character hexadecimal stash token.'
-# The token travels through curl's stdin config so it never appears in the process list.
-code=$(curl -q -sS --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 \
-    --config - -T "$file" -o /dev/null -w '%{http_code}' "$BASE/download$CHANNEL" \
-    <<< "user = \"stash:$token\"") || fail 'The upload request failed.'
-case $code in
-    204) printf 'Uploaded %s bytes; anyone can now read %s/download%s\n' "$size" "$BASE" "$CHANNEL" ;;
-    401) fail 'The token was rejected.' ;;
-    413) fail 'The server rejected the file: larger than 1 MiB.' ;;
-    415) fail 'The server rejected the file: not UTF-8 text.' ;;
-    *) fail "Unexpected HTTP status $code." ;;
-esac
+command -v python3 >/dev/null || { echo 'Python 3.9+ is required.' >&2; exit 1; }
+python3 - "$@" <<'LINSPACE_STASH_PY'
+@@include:src/stash/client.py@@
+main('https://@@DOMAIN@@', 'upload__CHANNEL__')
+LINSPACE_STASH_PY

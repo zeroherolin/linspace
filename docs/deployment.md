@@ -1,54 +1,61 @@
 # Deployment details
 
-Start with the [complete deployment steps](../README.md#deploy). The selected site JSON supplies the domain, homepage, public key and published filename, Claude JSON, and Codex TOML. The Codex catalog is bundled from `config/codex/models-1m.json`. Source deployment needs Python 3.9+ and `tomli` on Python below 3.11; extracted bundles need no TOML parser.
+For a new server, follow [Deploy](../README.md#deploy). This page covers existing installations, bundles and recovery.
+
+## Configuration
+
+`local/site.json` selects the domain, homepage, published key, client settings and Stash authorization. Configure as the account owning the checkout, then deploy with sudo. The wizard expands `~/` paths before saving.
+
+Use `--config local/other.json` on each command for a separate profile. Profiles with different SSH keys should reference distinct key files. Production rejects missing or placeholder filing details; it validates their format, not authority records.
 
 ## Existing Caddy
 
-The deployer manages `/etc/caddy/sites-enabled/linspace.caddy` and imports it from `/etc/caddy/Caddyfile`. It preserves other sites and global options and reuses an existing covering import glob. A fresh Caddy installation's welcome site is replaced by the managed import.
+The deployer manages `sites-enabled/linspace.caddy` and its import in `/etc/caddy/Caddyfile`. It preserves other sites and global options. An unmanaged block for the same domain is rejected.
 
-An unmanaged block for the same domain is rejected. After inspecting an older single-site linspace block rooted at `/srv/linspace`, adopt it with:
+For the supported older single-site linspace layout, inspect the current Caddyfile, then run:
 
 ```sh
 sudo ./linspace deploy --adopt-existing
 ```
 
-Complex or shared layouts need a deliberate manual merge. Existing token hashes are preserved. If an adopted installation has no plaintext token at the current path, keep using the previous token or rotate it explicitly.
+Complex layouts need a manual merge. A fresh Caddy installation's welcome site is replaced by linspace.
+
+## Upgrade from Stash tokens
+
+Deployment switches writes to SSH signatures and removes the active token file. The backup retains the previous authentication state, and channel data is preserved. Download the current client scripts after upgrading; `--rotate-token` is no longer supported.
 
 ## Managed paths
 
 | Path | Purpose |
 | --- | --- |
-| `/srv/linspace/releases/<id>/` | Public release; directories 0755, files 0644 |
+| `/srv/linspace/releases/` | Immutable public releases: directories 0755, files 0644 |
 | `/srv/linspace/current` | Active release symlink |
 | `/etc/caddy/sites-enabled/linspace.caddy` | Domain and public routes |
-| `/etc/caddy/linspace.d/stash.caddy` | Stash routes and bcrypt hash; root:caddy 0640 |
-| `/etc/linspace/stash-token` | Plaintext token; root-only 0600, parent 0700 |
-| `/usr/local/lib/stashd/stashd.py` | Writer implementation |
-| `/etc/systemd/system/stashd.{socket,service}` | Socket activation and isolation |
-| `/run/stashd/stashd.sock` | Unix write transport; stash:caddy 0660 |
+| `/etc/caddy/linspace.d/stash.caddy` | Stash routes; root:caddy 0640 |
+| `/usr/local/lib/stashd/` | Writer code and root-owned `allowed_signers` |
+| `/etc/systemd/system/stashd.{socket,service}` | Socket activation and service isolation |
+| `/run/stashd/ssh.sock` | Writer socket; stash:caddy 0660 |
 | `/var/lib/stashd/` | Public channel data |
-| `/var/lib/linspace/state.json` | Active deployment metadata |
-| `/var/backups/linspace/<timestamp>/` | Managed configuration, token, code, units, release pointer |
+| `/var/lib/linspace/state.json` | Deployment metadata |
+| `/var/backups/linspace/` | Configuration, authentication, code, units and release pointer |
 
-The checkout, tokens, backups, and service code are outside the public roots. Caddy serves only allowlisted paths.
+Caddy serves only allowlisted paths. The checkout, backups and service code are outside public roots.
 
 ## Failure and recovery
 
-Deployment checks inputs and checksums, installs missing dependencies, acquires a lock, snapshots managed state, publishes files, activates services, and verifies HTTPS.
+Deployment takes a backup before changing managed state. A file or service failure attempts rollback. A final HTTPS check failure retains the installed site for diagnosis; fix the network issue and rerun `./linspace verify`.
 
-- A managed-file or service failure attempts to restore the snapshot; failed recovery retains the backup for repair.
-- Newly installed packages/accounts are not removed by rollback.
-- A final HTTPS verification failure leaves the installation in place. Fix DNS, firewall, or certificates, then rerun `./linspace verify`.
-- `--dry-run` builds and checks the manifest without changing host services. It does not prove Caddy syntax, certificate issuance, or public reachability.
-- `--skip-verify` skips only the final network check; a separate successful verification is still needed.
-
-Use a backup path printed by deployment:
+To restore a backup printed by deployment:
 
 ```sh
 sudo ./linspace rollback /var/backups/linspace/BACKUP_NAME
 ```
 
-Rollback restores the previous managed files, token and release, but keeps current channel contents. It does not edit `local/site.json` or selected input files; reconcile those before the next deploy.
+Rollback restores managed files and authentication, but keeps current channel contents. It does not change source configuration or remove installed packages/accounts. Restoring a token-based release also restores its token and requires the older clients.
+
+Writes pause during activation and rollback. The SSH and legacy writers use different sockets, and restarts invalidate outstanding signing challenges.
+
+`--dry-run` changes no host services. `--skip-verify` skips only the final HTTPS check; neither proves public availability.
 
 ## Deploy a built bundle
 
@@ -56,22 +63,23 @@ On the build machine:
 
 ```sh
 ./linspace build
-awk '$2 == "linspace-site.tar.gz" { print }' dist/SHA256SUMS > dist/linspace-site.tar.gz.sha256
+cd dist
+sha256sum linspace-site.tar.gz > linspace-site.tar.gz.sha256
 ```
 
-Transfer the archive and checksum through a trusted channel. On the web server, from their directory:
+On macOS, use `shasum -a 256` in place of `sha256sum`. Transfer the archive and checksum through a trusted channel.
+
+On the server, verify before extracting into a new directory:
 
 ```sh
 sha256sum --check linspace-site.tar.gz.sha256
-release_dir=$(mktemp -d ./linspace-release.XXXXXX)
-tar --no-same-owner -xzf linspace-site.tar.gz -C "$release_dir"
-cd "$release_dir/linspace-site"
-sha256sum --check SHA256SUMS
-bash linspace --dry-run
-sudo bash linspace
-python3 verify.py
+mkdir linspace-release
+tar --no-same-owner -xzf linspace-site.tar.gz -C linspace-release
+cd linspace-release/linspace-site
 ```
 
-The bundle includes rendered public files and deployment tools; no Git or build step is needed there. Rebuild to change content or domains. Extra files invalidate its manifest, so keep logs and editor backups outside it. The separate Mihomo bundle is covered in the [target guide](usage/mihomo.md#use-a-target-bundle).
+Then follow the included [server bundle README](../packaging/site-README.md). The bundle needs Python 3.9+ and Bash, but no Git checkout or TOML parser. Keep extra files outside the bundle; its checksum manifest rejects additions or edits.
 
-Caddy references: [installation](https://caddyserver.com/docs/install#debian-ubuntu-raspbian), [imports](https://caddyserver.com/docs/caddyfile/directives/import), [automatic HTTPS](https://caddyserver.com/docs/automatic-https), [validation](https://caddyserver.com/docs/command-line#caddy-validate).
+The [Mihomo target bundle](usage/mihomo.md#use-a-target-bundle) is for client proxy installation.
+
+Caddy references: [installation](https://caddyserver.com/docs/install#debian-ubuntu-raspbian) · [imports](https://caddyserver.com/docs/caddyfile/directives/import) · [HTTPS](https://caddyserver.com/docs/automatic-https).

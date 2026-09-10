@@ -1,40 +1,39 @@
-# Apply shared client configuration
+# Configuration files
 
-This is the common procedure for [Claude Code](claude.md) and [Codex](codex.md). Run in Bash as the client account. Set your domain and choose `client=claude` or `client=codex`.
+The [Claude Code](claude.md) and [Codex](codex.md) guides show direct downloads for a new client. Run them as the client account, without sudo.
 
-**This replaces one complete configuration file.** Review the shared file first and merge manually if you need to retain personal settings. Presets define model, provider and access settings; replacement removes preferences absent from the downloaded file. Builds validate syntax and catalog consistency; settings must also suit the installed client version.
+## Locations
 
-```bash
-(
-    set -euo pipefail
-    client=codex
-    base_url=https://your-domain.cn
-    case "$client" in
-        claude) config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; config_name=settings.json ;;
-        codex) config_dir="${CODEX_HOME:-$HOME/.codex}"; config_name=config.toml ;;
-        *) echo 'Choose claude or codex' >&2; exit 1 ;;
-    esac
-    install -d -m 700 "$config_dir"
-    downloaded=$(mktemp "$config_dir/.config.XXXXXX")
-    trap 'rm -f "$downloaded"' EXIT
-    curl -q -fsSL --proto '=https' --proto-redir '=https' \
-        --connect-timeout 10 --max-time 60 \
-        "$base_url/$client/config" -o "$downloaded"
-    if [[ -f "$config_dir/$config_name" ]]; then
-        backup=$(mktemp "$config_dir/$config_name.backup.XXXXXX")
-        cp -p "$config_dir/$config_name" "$backup"
-        chmod 600 "$backup"
-        printf 'Previous configuration: %s\n' "$backup"
-    fi
-    chmod 600 "$downloaded"
-    mv -f "$downloaded" "$config_dir/$config_name"
-)
+| Client | Default directory | Custom directory variable |
+| --- | --- | --- |
+| Claude Code | `~/.claude` | `CLAUDE_CONFIG_DIR` |
+| Codex | `~/.codex` | `CODEX_HOME` |
+
+If a custom directory is set, substitute that absolute path in the download commands. The `/codex/auth` script follows `CODEX_HOME` automatically.
+
+| Download | Save as |
+| --- | --- |
+| `/claude/config` | `settings.json` in the Claude directory |
+| `/codex/config` | `config.toml` in the Codex directory |
+| `/codex/models_1m` | `models-1m.json` beside `config.toml` |
+
+Keep configuration directories at mode `700` and files at `600`. The catalog path in the Codex preset is relative; no username replacement is needed.
+
+## Existing installations
+
+Downloads **replace whole files**, rather than merging settings. Back up files you have customized before downloading, for example:
+
+```sh
+cp -p ~/.claude/settings.json ~/.claude/settings.json.bak
 ```
 
-The destination follows `CLAUDE_CONFIG_DIR` or `CODEX_HOME` when set, otherwise the current user's `~/.claude` or `~/.codex`. Use an absolute directory for either environment variable. Run as that user, without sudo.
+```sh
+cp -p ~/.codex/config.toml ~/.codex/config.toml.bak
+cp -p ~/.codex/models-1m.json ~/.codex/models-1m.json.bak
+```
 
-For Codex, also [download the model catalog beside the configuration](codex.md#download-the-model-catalog) before starting the client; this shared procedure replaces only `config.toml`.
+Use an unused backup filename if `.bak` already exists. A failed direct download may leave a partial file: retry successfully or restore your backup before starting the client.
 
-A failed download leaves the existing file untouched. The unique backup remains beside it; restore that file to undo replacement. Authentication files are separate and remain untouched.
+Configuration downloads do not change login credentials. The separate [Codex auth script](codex.md#authenticate) backs up and atomically replaces `auth.json`.
 
-For an integrity comparison, ask the operator for the SHA256 of the **active generated** `/srv/linspace/current/claude/config` or `/srv/linspace/current/codex/config`; the catalog is `/srv/linspace/current/codex/models_1m`. Use `sha256sum` on Linux or `shasum -a 256` on macOS. Claude's input JSON may be formatted differently before building; compare the published bytes. Clients must deliberately repeat the procedure after an operator update.
+Restart the client after changing settings or the catalog. Site updates do not update client files automatically.

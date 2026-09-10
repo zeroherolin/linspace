@@ -63,6 +63,7 @@ def archive(directory):
 
 def build(config_path, output=None, internal=False):
     config, key, claude_settings, codex_config = siteconfig.load(config_path, internal)
+    stash_keys = siteconfig.stash_keys(config, key)
     codex_models, _ = codex_catalog.load_catalog(ROOT)
     output = Path(output or ROOT / 'dist').absolute()
     if output.is_symlink() or output == ROOT or not (output.name == 'dist' or output.name.startswith('linspace-build-')):
@@ -82,7 +83,8 @@ def build(config_path, output=None, internal=False):
     values = {'DOMAIN': config['domain'], 'GEO_SHA': asset['sha256'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else ''}
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
-        'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/stash/clear': 'src/stash/clear.sh',
+        'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/codex/auth': 'src/codex/auth.sh.in',
+        'site/stash/clear': 'src/stash/clear.sh',
         'config/Caddyfile': 'config/Caddyfile.in', 'config/stash.caddy.template': 'src/stash/stash.caddy.in',
         'service/stashd.py': 'src/stash/stashd.py', 'service/stashd.service': 'src/stash/stashd.service',
         'service/stashd.socket': 'src/stash/stashd.socket',
@@ -95,6 +97,8 @@ def build(config_path, output=None, internal=False):
     write(release, 'site/claude/config', claude_settings)
     write(release, 'site/codex/config', codex_config)
     write(release, 'site/codex/models_1m', codex_models)
+    write(release, 'site/stash/keys', '\n'.join(stash_keys) + ('\n' if stash_keys else ''))
+    write(release, 'config/stash.allowed_signers', ''.join(f'stash namespaces="linspace-stash@{config["domain"]}" {key}\n' for key in stash_keys))
     write(release, 'site/index.html', siteconfig.page(config))
     write(release, f"site/mihomo/assets/geoip-{asset['sha256']}.dat", geo)
     for name in ('deploy.py', 'verify.py'):
@@ -103,7 +107,7 @@ def build(config_path, output=None, internal=False):
     write(release, 'README.md', (ROOT / 'packaging/site-README.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
-    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'internal_test': internal, 'geoip_sha256': asset['sha256']}, ensure_ascii=False, indent=2) + '\n')
+    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal, 'geoip_sha256': asset['sha256']}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')

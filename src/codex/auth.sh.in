@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Save an API token locally; no credentials are sent to the site.
+set +x
+set -Eeuo pipefail
+# EXIT traps on newer Bash run after function-local variables have unwound.
+linspace_auth_tmp=''
+linspace_auth_pending_backup=''
+
+fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+usage() {
+    cat <<'USAGE'
+Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN]
+  -t, --token TOKEN  API token for your configured provider
+  -h, --help         Show this help
+Without -t, read the token privately from the terminal.
+Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
+Existing credentials are backed up before replacement. Run without sudo.
+USAGE
+}
+
+main() {
+    local token='' token_given=false config_dir auth_file escaped
+    local backup='' LC_ALL=C
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -t|--token)
+                [[ $# -ge 2 ]] || fail 'Missing value after -t.'
+                [[ $token_given == false ]] || fail 'Pass the token only once.'
+                token=$2; token_given=true; shift 2 ;;
+            -h|--help) usage; return 0 ;;
+            *) fail 'Unexpected argument. Use bash -s -- -t TOKEN, or --help.' ;;
+        esac
+    done
+    if [[ $token_given == false ]]; then
+        ( : < /dev/tty ) 2>/dev/null || fail 'No token. Pass -t TOKEN or run from a terminal.'
+        IFS= read -rs -p 'Codex API token: ' token < /dev/tty || fail 'Could not read the token.'
+        printf '\n' >&2
+    fi
+    [[ -n $token && $token =~ ^[[:graph:]]+$ ]] || fail 'The token must be nonempty printable ASCII without whitespace.'
+    config_dir=${CODEX_HOME:-${HOME:?HOME is required when CODEX_HOME is unset}/.codex}
+    [[ $config_dir == /* ]] || fail 'Use an absolute path for CODEX_HOME.'
+    umask 077
+    mkdir -p -- "$config_dir"
+    [[ -d $config_dir && -O $config_dir ]] || fail 'The configuration directory must belong to the current user.'
+    chmod 700 "$config_dir"
+    auth_file=$config_dir/auth.json
+    [[ ! -L $auth_file ]] || fail 'Refusing to replace a symbolic-link auth.json.'
+    [[ ! -e $auth_file || -f $auth_file ]] || fail 'auth.json must be a regular file.'
+
+    # Keep the old credentials intact until a complete replacement is ready.
+    trap 'rm -f -- "${linspace_auth_tmp:-}" "${linspace_auth_pending_backup:-}"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    linspace_auth_tmp=$(mktemp "$config_dir/.auth.XXXXXX")
+    escaped=${token//\\/\\\\}
+    escaped=${escaped//\"/\\\"}
+    printf '{\n  "auth_mode": "apikey",\n  "OPENAI_API_KEY": "%s"\n}\n' "$escaped" > "$linspace_auth_tmp"
+    unset token escaped
+    if [[ -f $auth_file ]]; then
+        if cmp -s "$linspace_auth_tmp" "$auth_file"; then
+            chmod 600 "$auth_file"
+            rm -f -- "$linspace_auth_tmp"
+            linspace_auth_tmp=''
+            printf 'Credentials already saved in %s\n' "$auth_file"
+            return 0
+        fi
+        linspace_auth_pending_backup=$(mktemp "$config_dir/auth.json.backup.XXXXXX")
+        cat -- "$auth_file" > "$linspace_auth_pending_backup"
+        backup=$linspace_auth_pending_backup
+        linspace_auth_pending_backup=''
+    fi
+    mv -f -- "$linspace_auth_tmp" "$auth_file"
+    linspace_auth_tmp=''
+    [[ -z $backup ]] || printf 'Previous credentials: %s\n' "$backup"
+    printf 'Saved API credentials to %s (mode 600).\n' "$auth_file"
+    printf 'Token validity is checked when Codex connects to your configured provider.\n'
+}
+
+# Parse the complete function before acting on a streamed download.
+main "$@"

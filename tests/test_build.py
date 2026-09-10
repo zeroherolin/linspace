@@ -26,6 +26,15 @@ class BuildTests(unittest.TestCase):
             self.assertTrue(meta['ssh_enabled'])
             self.assertTrue(meta['internal_test'])
             self.assertEqual(meta['ssh_public_key_name'], 'team.pub')
+            self.assertEqual(meta['stash_auth'], 'ssh-signature-v1')
+            self.assertEqual(meta['stash_key_count'], 1)
+            normalized = ' '.join(Path(str(key) + '.pub').read_text().split()[:2])
+            self.assertEqual((release / 'site/stash/keys').read_text(), normalized + '\n')
+            self.assertEqual((release / 'config/stash.allowed_signers').read_text(), f'stash namespaces="linspace-stash@custom.example.test" {normalized}\n')
+            self.assertNotIn('basic_auth', (release / 'config/stash.caddy.template').read_text())
+            self.assertNotIn('__HASH__', (release / 'config/stash.caddy.template').read_text())
+            self.assertIn('unix//run/stashd/ssh.sock', (release / 'config/stash.caddy.template').read_text())
+            self.assertIn('ListenStream=/run/stashd/ssh.sock', (release / 'service/stashd.socket').read_text())
             self.assertEqual((release / 'site/ssh/team.pub').read_bytes(), Path(str(key) + '.pub').read_bytes())
             self.assertFalse((release / 'site/ssh/key.pub').exists())
             for path in release.rglob('*'):
@@ -42,6 +51,10 @@ class BuildTests(unittest.TestCase):
             self.assertEqual((release / 'site/codex/config').read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
             self.assertEqual(build.siteconfig.tomllib.loads((release / 'site/codex/config').read_text())['model_catalog_json'], 'models-1m.json')
             self.assertIn('/codex/models_1m', (release / 'config/Caddyfile').read_text())
+            self.assertIn('/codex/auth', (release / 'config/Caddyfile').read_text())
+            auth = (release / 'site/codex/auth').read_text()
+            self.assertIn('https://custom.example.test/codex/auth', auth)
+            subprocess.run(['bash', '-n'], input=auth, text=True, check=True)
             models = release / 'site/codex/models_1m'
             self.assertEqual(models.read_bytes(), (ROOT / 'config/codex/models-1m.json').read_bytes())
             self.assertEqual({m['slug']: m['context_window'] for m in json.loads(models.read_text())['models']}, {'gpt-6-astra': 1000000, 'gpt-5.6-sol': 1000000})
@@ -75,6 +88,8 @@ class BuildTests(unittest.TestCase):
             self.assertFalse((release / 'site/ssh').exists())
             self.assertNotIn('/ssh/', (release / 'config/Caddyfile').read_text())
             self.assertFalse(json.loads((release / 'release.json').read_text())['ssh_enabled'])
+            self.assertEqual(json.loads((release / 'release.json').read_text())['stash_key_count'], 0)
+            self.assertEqual((release / 'config/stash.allowed_signers').read_bytes(), b'')
 
     def test_custom_client_configs_are_published_without_private_input_paths(self):
         with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:

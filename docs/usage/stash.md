@@ -1,28 +1,16 @@
 # Text stash
 
-Eight channels, numbered **0–7**, each hold one UTF-8 file up to **1 MiB** (1,048,576 bytes), without NUL bytes. Uploads replace content. **Reads are public**; there is no history, expiry, or rate limit. Keep private data and credentials out.
+Stash has eight channels, **0–7**. Each holds one UTF-8 file up to **1 MiB**, without NUL bytes. Upload replaces the previous file. Reads are public, with no history or expiry; keep secrets out.
 
-Use Bash, curl and iconv on Linux or macOS. Replace `your-domain.cn` with the site domain.
+Clients need Bash, curl, Python 3.9+ and OpenSSH 8.2+ on Linux or macOS. Upload and clear require an authorized private key or agent.
 
 ## Upload
 
 ```sh
-curl -fsSL https://your-domain.cn/stash/upload7 | bash -s -- /path/to/text_file
+curl -fsSL https://your-domain.cn/stash/upload7 | bash -s -- 'file.txt'
 ```
 
-The script prompts without echoing for the site's 48-character lowercase hexadecimal token. Change `7` to another channel; `/stash/upload` aliases channel 0. The same token authorizes all writes and clear.
-
-For repeated uploads without putting the token in shell history:
-
-```bash
-read -rs -p 'Stash token: ' STASH_TOKEN
-printf '\n'
-export STASH_TOKEN
-curl -fsSL https://your-domain.cn/stash/upload7 | bash -s -- /path/to/text_file
-unset STASH_TOKEN
-```
-
-`-t TOKEN` or `--token TOKEN` is also accepted after the filename, but literal arguments can appear in history/process listings. Clients send credentials to curl through stdin configuration.
+Change `7` to another channel. `/stash/upload` is an alias for channel 0. Normally no token or `-i` is needed.
 
 ## Read
 
@@ -31,26 +19,45 @@ curl -fsSL https://your-domain.cn/stash/download7
 curl -fsSL https://your-domain.cn/stash/download7 -o received.txt
 ```
 
-`/stash/download` aliases channel 0. Missing channels return 404; uploaded empty files return 200 with an empty body.
+`/stash/download` is an alias for channel 0. A missing channel returns 404; an empty uploaded file returns 200.
 
 ## Clear
 
 ```sh
-curl -fsSL https://your-domain.cn/stash/clear | bash -s --
+curl -fsSL https://your-domain.cn/stash/clear | bash
 ```
 
-This clears **all eight channels**, using the same token prompt or environment variable. To empty one channel while keeping its URL present, upload an empty file there.
+This removes **all eight channels**. To empty only one channel while keeping its URL available, upload an empty file there.
 
-## Responses
+## Choose a key
 
-| Request | Result |
+The client first matches keys in `ssh-agent`, then standard `~/.ssh/id_*` key pairs, then other `.pub` files with a private file beside them. Private keys never leave the client.
+
+Encrypted keys may need a passphrase; hardware keys may need a touch. Load a key into your existing agent for repeated use:
+
+```sh
+ssh-add ~/.ssh/id_ed25519
+```
+
+For a key outside `~/.ssh`, set its path once in your shell profile:
+
+```sh
+export STASH_IDENTITY=/path/to/private_key
+```
+
+A one-command `-i /path/to/private_key` override is also supported. A `.pub` path works when its private key is in the agent.
+
+**A public key in `authorized_keys` cannot sign uploads.** On a remote machine, authorize that machine's own public key or use an agent available in a trusted session. [Manage site authorization](../operations.md#stash-authorized-keys).
+
+## Troubleshooting
+
+| Result | Action |
 | --- | --- |
-| Authenticated PUT `/stash/download0` … `7` | 204; replaces one channel |
-| Authenticated POST `/stash/clear` | 204; clears all channels |
-| GET/HEAD of existing content | 200; plain text, `no-store`, `nosniff` |
-| Missing or wrong write token | 401 |
-| Over 1 MiB | 413 |
-| NUL or invalid UTF-8 | 415 |
-| Chunked or invalid-length PUT | 411 |
+| No authorized identity | Load the key into the agent or ask the operator to authorize it |
+| Writes disabled | The site has no authorized public keys |
+| 401 | Download the current script and retry; the signature may be invalid, expired or already used |
+| 429 / 503 | Retry later; the operator should check service logs |
+| 413 / 415 | Use UTF-8 text without NUL bytes, at most 1 MiB |
+| 411 | Upload with the current script, which sends the required Content-Length |
 
-Invalid writes retain the previous file. Clients send a known content length; the writer treats missing `Content-Length` as zero. Caddy handles HTTPS/authentication and forwards writes to the Unix-socket service. See [architecture](../architecture.md) and [token operations](../operations.md#token).
+Successful writes return 204. Legacy Stash tokens are no longer accepted. [Authentication protocol](../stash-auth.md).

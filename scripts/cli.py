@@ -32,6 +32,14 @@ def configure(args):
             previous = current.get(key, '')
             entered = input(f'{prompt}' + (f' [{previous}]' if previous else '') + ': ').strip()
             current[key] = '' if key == 'ssh_public_key_file' and entered == '-' else entered or previous
+    if args.stash_public_key_files is not None:
+        current['stash_public_key_files'] = args.stash_public_key_files
+    elif not args.non_interactive:
+        previous = current.get('stash_public_key_files')
+        entered = input('Stash public keys: JSON path array, [] disables writes, auto reuses the SSH key'
+                        f' [{json.dumps(previous) if previous is not None else "auto"}]: ').strip()
+        if entered:
+            current['stash_public_key_files'] = None if entered == 'auto' else json.loads(entered)
     args.config.parent.mkdir(parents=True, exist_ok=True)
     pending = args.config.with_name('.site-pending.json')
     try:
@@ -49,6 +57,7 @@ def configure(args):
     finally:
         pending.unlink(missing_ok=True)
     print(f'Saved {args.config}. Domain, homepage, and client URLs will be generated together.')
+    print('Stash uses SSH signatures; no token is needed. With no authorized key, writes are disabled.')
     options = (' --config ' + shlex.quote(str(args.config))) if args.config != DEFAULT else ''
     options += ' --internal-test' if args.internal_test else ''
     print(f'Next: ./linspace deploy{options} --dry-run, then sudo ./linspace deploy{options}')
@@ -63,10 +72,10 @@ def main():
         p.add_argument('--internal-test', action='store_true', help='internal testing only; allow reserved domains and an empty filing number')
         if name == 'configure':
             for field in siteconfig.FIELDS:
-                p.add_argument('--' + field.replace('_', '-'))
+                p.add_argument('--' + field.replace('_', '-'), **({'nargs': '*'} if field == 'stash_public_key_files' else {}))
             p.add_argument('--non-interactive', action='store_true')
         if name == 'deploy':
-            for flag in ('dry-run', 'rotate-token', 'adopt-existing', 'skip-verify', 'local'):
+            for flag in ('dry-run', 'adopt-existing', 'skip-verify', 'local'):
                 p.add_argument('--' + flag, action='store_true')
         if name == 'verify':
             p.add_argument('--local', action='store_true')
@@ -89,7 +98,7 @@ def main():
             # sudo deployment must not leave root-owned build files in a user's checkout.
             with tempfile.TemporaryDirectory(prefix='linspace-deploy-') as temporary:
                 release = build.build(args.config, Path(temporary) / 'dist', internal=args.internal_test)
-                flags = ['--' + name.replace('_', '-') for name in ('dry_run', 'rotate_token', 'adopt_existing', 'skip_verify', 'internal_test', 'local') if getattr(args, name)]
+                flags = ['--' + name.replace('_', '-') for name in ('dry_run', 'adopt_existing', 'skip_verify', 'internal_test', 'local') if getattr(args, name)]
                 deploy.main(['--release', str(release), *flags])
         else:
             config, key, _, _ = siteconfig.load(args.config, args.internal_test)
@@ -97,7 +106,7 @@ def main():
                 asset = json.loads((ROOT / 'assets/manifest.json').read_text())['geoip']
                 verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name'], 'geoip_sha256': asset['sha256']}, args.local)
             else:
-                paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'stash/upload0', 'stash/download0', 'stash/clear']
+                paths = ['', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload0', 'stash/download0', 'stash/clear']
                 if key:
                     paths.insert(1, 'ssh/' + config['ssh_public_key_name'])
                 for path in paths:

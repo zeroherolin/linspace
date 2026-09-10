@@ -32,8 +32,9 @@ def probe(domain, path, method='HEAD', local=False, scheme='https'):
 def verify(meta, local=False, quiet=False):
     domain = meta['domain']
     paths = ['ssh/' + meta.get('ssh_public_key_name', 'key.pub')] if meta['ssh_enabled'] else []
-    paths += ['mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/config', 'codex/config', 'codex/models_1m', 'stash/upload', 'stash/clear']
+    paths += ['mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/config', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload', 'stash/clear']
     paths += [f'stash/upload{n}' for n in range(8)]
+    paths += ['stash/keys', 'stash/challenge']
     checks = [('/', 200, 'text/html', 'no-store')]
     checks += [('/' + p, 200, 'text/plain', 'no-store') for p in paths]
     checks.append((f'/mihomo/assets/geoip-{meta["geoip_sha256"]}.dat', 200, 'application/octet-stream', 'immutable'))
@@ -43,7 +44,7 @@ def verify(meta, local=False, quiet=False):
             raise RuntimeError(f'{path}: unexpected status or headers (HTTP {status})')
         if not quiet:
             print(f'OK {path}: {status}')
-    for path, expected, method in [('/not-published', 404, 'HEAD'), ('/stash/clear', 401, 'PUT')]:
+    for path, expected, method in [('/not-published', 404, 'HEAD'), ('/stash/clear', 401, 'POST'), ('/stash/download0', 401, 'PUT')]:
         status, _ = probe(domain, path, method, local)
         if status != expected:
             raise RuntimeError(f'{method} {path}: expected {expected}, got {status}')

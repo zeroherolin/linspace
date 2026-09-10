@@ -1,10 +1,12 @@
 import json
 import hashlib
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -12,6 +14,46 @@ import deploy
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_fresh_deployment_does_not_stop_missing_units(self):
+        with patch.object(deploy, 'run', return_value=SimpleNamespace(stdout='not-found\n')) as run:
+            deploy.stop_writer()
+        self.assertEqual(len(run.call_args_list), 2)
+        self.assertTrue(all(call.args[0][1] == 'show' for call in run.call_args_list))
+
+    def test_existing_writer_stop_failures_are_not_ignored(self):
+        def command(args, **kwargs):
+            if args[1] == 'show':
+                return SimpleNamespace(stdout='loaded\n')
+            raise subprocess.CalledProcessError(1, args)
+        with patch.object(deploy, 'run', side_effect=command) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                deploy.stop_writer()
+        self.assertEqual(run.call_args_list[-1].args[0], ['systemctl', 'stop', 'stashd.service', 'stashd.socket'])
+
+    def test_legacy_rollback_restores_proxy_authentication_before_starting_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup = root / 'backup'
+            backup.mkdir()
+            current = root / 'current'
+            (root / 'releases/old').mkdir(parents=True)
+            current.symlink_to('releases/new')
+            fragment, token, signers = root / 'fragment', root / 'legacy-token', root / 'allowed_signers'
+            signers.write_text('new signers')
+            entries = []
+            for index, (path, value) in enumerate([(fragment, b'old proxy authentication'), (token, b'old secret')]):
+                (backup / str(index)).write_bytes(value)
+                entries.append({'path': str(path), 'exists': True, 'mode': 0o600, 'gid': 0, 'sha256': hashlib.sha256(value).hexdigest()})
+            (backup / 'snapshot.json').write_text(json.dumps({'entries': entries, 'current': 'releases/old', 'stash_enabled': True, 'stash_active': True, 'caddy_active': True}))
+            with patch.object(deploy, 'CURRENT', current), patch.object(deploy, 'SIGNERS', signers), \
+                 patch.object(deploy, 'MANAGED', [fragment, token, signers]), patch.object(deploy.os, 'chown'), \
+                 patch.object(deploy, 'run') as run, patch.object(deploy.subprocess, 'run'):
+                deploy.restore(backup)
+            self.assertEqual(token.read_bytes(), b'old secret')
+            self.assertFalse(signers.exists())
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertLess(commands.index(['systemctl', 'reload', 'caddy']), commands.index(['systemctl', 'start', 'stashd.socket']))
+
     def test_fresh_config(self):
         self.assertEqual(deploy.merged_main(':80 {\n file_server\n}', 'mine.cn', fresh=True), deploy.IMPORT + '\n')
 
