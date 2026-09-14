@@ -31,9 +31,9 @@ class LifecycleTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         if not sys.platform.startswith('linux'):
-            processes = patch.object(common, 'process_table', return_value={})
-            processes.start()
-            self.addCleanup(processes.stop)
+            self.processes = patch.object(common, 'process_table', return_value={})
+            self.processes.start()
+            self.addCleanup(self.processes.stop)
 
     def file(self, relative, text='fixture', executable=False):
         path = self.home / relative
@@ -216,3 +216,15 @@ class LifecycleTests(unittest.TestCase):
             text = script.read_text().rsplit('main "$@"', 1)[0]
             result = subprocess.run(['bash', '-s'], input=text, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_macos_process_table_falls_back_when_libproc_is_unavailable(self):
+        sample = ' 123  1  501 Mon Sep 14 10:00:00 2026 /Users/test/.local/bin/codex --version\n'
+        if not sys.platform.startswith('linux'):
+            self.processes.stop()
+        with patch.object(common.sys, 'platform', 'darwin'), \
+             patch.object(common, 'run', return_value=subprocess.CompletedProcess([], 0, sample, '')), \
+             patch('ctypes.util.find_library', return_value=None):
+            table = common.process_table()
+        if not sys.platform.startswith('linux'):
+            self.processes.start()
+        self.assertEqual(table[123][2], '/Users/test/.local/bin/codex')

@@ -13,10 +13,12 @@ Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE
   -t, --token TOKEN  API token for your configured provider
   -u, --base-url URL Replace the selected provider's existing base_url in config.toml
   -h, --help         Show this help
-Without -t, read the token privately from the terminal.
+Without -t, prompt visibly for an optional base_url, then read the token privately.
+An explicit -u skips the URL prompt; Enter keeps the existing URL.
+With -t, no prompts are shown; omit -u to keep config.toml untouched.
 Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
 Credentials are replaced atomically without retained backups. Run without sudo.
-Without -u, config.toml is untouched. Missing Python is downloaded with a verified fallback.
+Missing Python is downloaded with a verified fallback when updating base_url.
 USAGE
 }
 
@@ -40,6 +42,12 @@ main() {
     done
     if [[ $token_given == false ]]; then
         ( : < /dev/tty ) 2>/dev/null || fail 'No token. Pass -t TOKEN or run from a terminal.'
+        if [[ $url_given == false ]]; then
+            IFS= read -r -p 'Codex base_url (Enter to keep current): ' base_url < /dev/tty || fail 'Could not read the base URL.'
+            if [[ -n $base_url ]]; then
+                url_given=true
+            fi
+        fi
         IFS= read -rs -p 'Codex API token: ' token < /dev/tty || fail 'Could not read the token.'
         printf '\n' >&2
     fi
@@ -56,7 +64,7 @@ main() {
 
     if [[ $url_given == true ]]; then
         LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
-        linspace_python 9 || fail 'Could not prepare Python for -u.'
+        linspace_python 9 || fail 'Could not prepare Python to update base_url.'
         "$LINSPACE_PYTHON" -I - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
 import atexit, base64, pathlib, sys, tempfile
 _vendor = tempfile.TemporaryDirectory(prefix='linspace-tomli-')

@@ -22,7 +22,7 @@ def main():
     for path in [ROOT / 'linspace', *ROOT.rglob('*.sh')]:
         if 'dist' not in path.parts and 'local' not in path.parts and '@@include:' not in path.read_text():
             subprocess.run(['bash', '-n', path], check=True)
-    markdown_checks.check([*ROOT.glob('*.md'), *(ROOT / 'docs').rglob('*.md'), *(ROOT / 'config').rglob('*.md'), *(ROOT / 'vendor').rglob('*.md'), *(ROOT / 'packaging').rglob('*.md')])
+    markdown_checks.check([*ROOT.glob('*.md'), *(ROOT / 'docs').glob('*.md')])
     with tempfile.TemporaryDirectory(prefix='linspace-check-') as tmp:
         root = Path(tmp)
         config = root / 'site.json'

@@ -79,6 +79,7 @@ class CliTests(unittest.TestCase):
             result = command('urls')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('https://keys.example.test/ssh/team.pub', result.stdout)
+            self.assertIn('https://keys.example.test/help', result.stdout)
             self.assertNotIn('/ssh/key.pub', result.stdout)
             before = profile.read_bytes()
             result = command('configure', '--non-interactive', '--ssh-public-key-name', '../other.pub')

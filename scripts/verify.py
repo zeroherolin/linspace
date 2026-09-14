@@ -42,6 +42,7 @@ def verify(meta, local=False, quiet=False):
     paths += [f'stash/upload{n}' for n in range(8)]
     paths += ['stash/keys', 'stash/challenge']
     checks = [('/', 200, 'text/html', 'no-store')]
+    checks += [('/help', 200, 'text/html', 'no-store')]
     checks += [('/' + p, 200, 'text/plain', 'no-store') for p in paths]
     for path, expected, media, cache in checks:
         status, headers = probe(domain, path, local=local)

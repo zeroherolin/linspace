@@ -128,9 +128,12 @@ def process_table():
                 continue
     else:
         import ctypes
-        library = ctypes.CDLL('/usr/lib/libproc.dylib')
-        library.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
-        library.proc_pidpath.restype = ctypes.c_int
+        import ctypes.util
+        library_path = ctypes.util.find_library('proc')
+        library = ctypes.CDLL(library_path) if library_path else None
+        if library is not None:
+            library.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            library.proc_pidpath.restype = ctypes.c_int
         result = run(['ps', '-axo', 'pid=,ppid=,uid=,lstart=,command='])
         for line in result.stdout.splitlines():
             fields = line.split(None, 8)
@@ -139,9 +142,14 @@ def process_table():
             try:
                 pid, parent, uid = map(int, fields[:3])
                 args = shlex.split(fields[8])
-                buffer = ctypes.create_string_buffer(4096)
-                size = library.proc_pidpath(pid, buffer, len(buffer))
-                executable = buffer.value.decode(errors='replace') if size > 0 else args[0] if args else ''
+                if library is not None:
+                    buffer = ctypes.create_string_buffer(4096)
+                    size = library.proc_pidpath(pid, buffer, len(buffer))
+                    executable = buffer.value.decode(errors='replace') if size > 0 else args[0] if args else ''
+                else:
+                    # Some macOS releases omit libproc from the base system.
+                    # ps still provides enough identity for recognized CLI paths.
+                    executable = args[0] if args else ''
                 table[pid] = (parent, ' '.join(fields[3:8]), executable, args, uid)
             except ValueError:
                 continue

@@ -1,4 +1,4 @@
-"""Optional -u support, embedded in the downloadable Codex auth script."""
+"""Shared base_url update support for the prompt and -u option."""
 from linspace_console import linspace_log
 import copy
 import json
@@ -25,7 +25,7 @@ def replace_base_url(data, url):
     except ValueError:
         valid = False
     if not valid or any(c.isspace() or ord(c) < 32 or ord(c) == 127 or c == '\\' for c in url):
-        raise ValueError('-u requires an absolute HTTP(S) base URL without userinfo, whitespace or a fragment.')
+        raise ValueError('base_url requires an absolute HTTP(S) URL without userinfo, whitespace or a fragment.')
     try:
         text = data.decode('utf-8')
         original = tomllib.loads(text)
@@ -59,7 +59,7 @@ def regular_bytes(path, required=False):
         raise ValueError(f'{path.name} must be a regular file, not a symbolic link.')
     if not path.exists():
         if required:
-            raise ValueError('config.toml is missing; download /codex/config before using -u.')
+            raise ValueError('config.toml is missing; download /codex/config before updating base_url.')
         return None
     return path.read_bytes()
 
@@ -128,7 +128,7 @@ def save_pair(config_dir, url, token):
 def provider_auth_main():
     try:
         if sys.version_info < (3, 9):
-            raise ValueError('-u requires Python 3.9 or later.')
+            raise ValueError('Updating base_url requires Python 3.9 or later.')
         # Keep the token out of Python command arguments and environment variables.
         with os.fdopen(3) as source:
             token = source.read().removesuffix('\n')

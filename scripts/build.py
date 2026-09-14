@@ -12,6 +12,7 @@ from pathlib import Path
 import siteconfig
 import codex_catalog
 import downloads
+import helppage
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDE = re.compile(r'^@@include:([^\n]+)@@\n', re.M)
@@ -111,17 +112,18 @@ def build(config_path, output=None, internal=False):
     write(release, 'site/stash/keys', '\n'.join(stash_keys) + ('\n' if stash_keys else ''))
     write(release, 'config/stash.allowed_signers', ''.join(f'stash namespaces="linspace-stash@{config["domain"]}" {key}\n' for key in stash_keys))
     write(release, 'site/index.html', siteconfig.page(config))
+    write(release, 'site/help', helppage.help_page(config))
     for name in ('deploy.py', 'verify.py', 'linspace_console.py'):
         write(release, name, (ROOT / 'scripts' / name).read_bytes())
     write(release, 'install-caddy.sh', render('scripts/install-caddy.sh.in', values))
-    write(release, 'README.md', (ROOT / 'packaging/site-README.md').read_bytes())
+    write(release, 'README.md', (ROOT / 'docs/site-bundle.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
     write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')
-    write(target, 'README.md', render('packaging/mihomo-README.md', values))
+    write(target, 'README.md', render('docs/mihomo-bundle.md', values))
     checksums(target)
     for directory in (release, target):
         archive(directory)

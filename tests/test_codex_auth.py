@@ -1,12 +1,18 @@
 import json
 import importlib.util
 import os
+import errno
+import pty
+import select
 import subprocess
 import sys
 import tempfile
+import termios
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -35,6 +41,142 @@ class CodexAuthTests(unittest.TestCase):
         return subprocess.run(['bash', '-s', '--', *args], input=self.script if script is None else script,
                               env={**self.env, **env}, text=True, capture_output=True,
                               start_new_session=True, timeout=10, cwd=self.root)
+
+    def run_interactive(self, token, url='', *args, eof=False):
+        """Use a real terminal for /dev/tty while Bash reads the script from stdin."""
+        script = self.root / 'interactive.sh'
+        script.write_text(self.script)
+        master, slave = pty.openpty()
+        # A fresh process owns the controlling terminal. No personal shell or
+        # credentials are used, and stdin remains redirected like curl | bash.
+        setup = ('import fcntl, os, sys, termios; '
+                 'fcntl.ioctl(1, termios.TIOCSCTTY, 0); '
+                 'os.execvp("bash", ["bash", "-s", "--", *sys.argv[1:]])')
+        process = None
+        output = bytearray()
+        deadline = time.monotonic() + 10
+
+        def read_output():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.fail('Interactive authentication did not finish')
+            if not select.select([master], [], [], remaining)[0]:
+                self.fail('Interactive authentication timed out')
+            try:
+                data = os.read(master, 65536)
+            except OSError as error:
+                if error.errno != errno.EIO:
+                    raise
+                data = b''
+            output.extend(data)
+            return bool(data)
+
+        def wait_prompt(text):
+            while text.encode() not in output:
+                if not read_output():
+                    self.fail('Interactive authentication exited before: ' + text)
+
+        def wait_echo(enabled):
+            # Bash may print the prompt just before changing terminal echo.
+            while bool(termios.tcgetattr(master)[3] & termios.ECHO) != enabled:
+                if time.monotonic() >= deadline:
+                    self.fail('Terminal echo did not reach the expected state')
+                time.sleep(.005)
+
+        try:
+            with script.open('rb') as source:
+                process = subprocess.Popen([sys.executable, '-c', setup, *args], stdin=source,
+                                           stdout=slave, stderr=slave, start_new_session=True,
+                                           cwd=self.root, env={**self.env, 'HOME': str(self.root),
+                                               'XDG_CACHE_HOME': str(self.root / 'cache'), 'NO_COLOR': '1'})
+            os.close(slave)
+            slave = None
+            if '-u' not in args and '--base-url' not in args:
+                wait_prompt('Codex base_url (Enter to keep current): ')
+                self.assertNotIn(b'Codex API token: ', output)
+                wait_echo(True)
+                os.write(master, b'\x04' if eof else url.encode() + b'\n')
+                if eof:
+                    while read_output():
+                        pass
+                    process.wait(timeout=2)
+                    return SimpleNamespace(returncode=process.returncode, stdout=output.decode(errors='replace'))
+            wait_prompt('Codex API token: ')
+            wait_echo(False)
+            os.write(master, token.encode() + b'\n')
+            while read_output():
+                pass
+            process.wait(timeout=2)
+            return SimpleNamespace(returncode=process.returncode, stdout=output.decode(errors='replace'))
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)
+            os.close(master)
+            if slave is not None:
+                os.close(slave)
+
+    def test_interactive_url_is_visible_and_matches_explicit_u_update(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        original = (b'model_provider = "chosen"\r\n'
+                    b'[model_providers.other]\r\nbase_url = "https://other.example/v1"\r\n'
+                    b'[model_providers.chosen]\r\nbase_url = "https://old.example/v1" # keep\r\n')
+        config.write_bytes(original)
+        token, url = 'private-interactive-token', 'https://relay.example/v1'
+        explicit = self.run_script('-t', token, '-u', url)
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        expected_config, expected_auth = config.read_bytes(), self.auth_file.read_bytes()
+        config.write_bytes(original)
+        self.auth_file.write_text('old credentials')
+        result = self.run_interactive(token, url)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertLess(result.stdout.index('Codex base_url'), result.stdout.index('Codex API token'))
+        self.assertIn(url, result.stdout)
+        self.assertNotIn(token, result.stdout)
+        self.assertEqual(config.read_bytes(), expected_config)
+        self.assertEqual(self.auth_file.read_bytes(), expected_auth)
+        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.auth_file.stat().st_mode & 0o777, 0o600)
+        self.assertEqual({p.name for p in self.config_dir.iterdir()}, {'config.toml', 'auth.json'})
+
+    def test_interactive_empty_url_never_reads_or_changes_config(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        for original in (None, b'not TOML; preserve bytes\xff'):
+            with self.subTest(config=original):
+                if original is not None:
+                    config.write_bytes(original)
+                result = self.run_interactive('hidden-token', '')
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn('hidden-token', result.stdout)
+                self.assertEqual(config.read_bytes() if config.exists() else None, original)
+                self.assertEqual(json.loads(self.auth_file.read_text())['OPENAI_API_KEY'], 'hidden-token')
+
+    def test_interactive_invalid_url_or_eof_preserves_existing_files(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        original = (ROOT / 'config/codex/config.toml').read_bytes()
+        config.write_bytes(original)
+        self.auth_file.write_text('old credentials')
+        for url, eof in [('not-a-url', False), ('https://relay.example:wrong/v1', False), ('', True)]:
+            with self.subTest(url=url, eof=eof):
+                result = self.run_interactive('new-hidden-token', url, eof=eof)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn('new-hidden-token', result.stdout)
+                self.assertEqual(config.read_bytes(), original)
+                self.assertEqual(self.auth_file.read_text(), 'old credentials')
+                self.assertEqual({p.name for p in self.config_dir.iterdir()}, {'config.toml', 'auth.json'})
+
+    def test_interactive_explicit_u_skips_the_url_prompt(self):
+        self.config_dir.mkdir()
+        config = self.config_dir / 'config.toml'
+        config.write_bytes((ROOT / 'config/codex/config.toml').read_bytes())
+        result = self.run_interactive('hidden-token', '', '-u', 'https://selected.example/v1')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn('Codex base_url', result.stdout)
+        self.assertNotIn('hidden-token', result.stdout)
+        self.assertIn('https://selected.example/v1', config.read_text())
 
     def test_piped_script_escapes_token_and_sets_private_permissions(self):
         token = 'test-"\\$(touch${IFS}unexpected)`id`;abc'

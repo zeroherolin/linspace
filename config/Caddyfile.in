@@ -9,6 +9,12 @@
         header Cache-Control "no-store"
         file_server
     }
+    @help path /help
+    handle @help {
+        header Content-Type "text/html; charset=utf-8"
+        header Cache-Control "no-store"
+        file_server
+    }
     @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/uninstall /mihomo/sub /mihomo/restart /claude/install /claude/uninstall /claude/config /codex/install /codex/uninstall /codex/config /codex/models_1m /codex/auth
     handle @text {
         header Content-Type "text/plain; charset=utf-8"
