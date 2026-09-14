@@ -20,6 +20,7 @@ import sys
 sys.dont_write_bytecode = True
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 import verify
 
@@ -30,8 +31,22 @@ LEGACY_TOKEN = Path('/etc/linspace/stash-token')
 SIGNERS = Path('/usr/local/lib/stashd/allowed_signers')
 CURRENT = Path('/srv/linspace/current')
 STATE = Path('/var/lib/linspace/state.json')
+LOCK = Path('/var/lib/linspace/deploy.lock')
 IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
 MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stashd/stashd.py'), Path('/etc/systemd/system/stashd.service'), Path('/etc/systemd/system/stashd.socket'), SIGNERS]
+
+
+@contextmanager
+def deployment_lock():
+    if LOCK.parent.is_symlink() or LOCK.is_symlink():
+        raise ValueError('Deployment lock and its directory must not be symlinks')
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK.open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another deployment or rollback is running; retry after it finishes.') from None
+        yield
 
 
 def run(args, **kwargs):
@@ -225,14 +240,6 @@ def apply(release, args):
     if os.geteuid() != 0 or not Path('/etc/debian_version').exists() or not Path('/run/systemd/system').is_dir():
         raise ValueError('Deployment requires root on Debian/Ubuntu with a running systemd. Use sudo ./linspace deploy.')
     os.umask(0o022)
-    for parent in ['/srv/linspace', '/etc/linspace', '/var/lib/linspace', '/usr/local/lib/stashd', '/etc/caddy/sites-enabled', '/etc/caddy/linspace.d']:
-        if Path(parent).is_symlink():
-            raise ValueError(f'Refusing managed symlink directory: {parent}')
-    if CURRENT.is_symlink() and (not CURRENT.is_dir() or not CURRENT.resolve().is_relative_to(Path('/srv/linspace/releases'))):
-        raise ValueError('The active release symlink must point to an existing managed release')
-    if CURRENT.exists() and not CURRENT.is_symlink():
-        raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
-    fresh_caddy = shutil.which('caddy') is None
     # Syntax and checksums are checked before installing packages or changing services.
     for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('upload*')) + [release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
         if script.is_file():
@@ -240,20 +247,28 @@ def apply(release, args):
     compile((release / 'service/stashd.py').read_text(), 'stashd.py', 'exec')
     if shutil.which('curl') is None or shutil.which('ssh-keygen') is None:
         raise ValueError('Install the documented curl and OpenSSH prerequisites before deployment.')
-    run(['bash', release / 'install-caddy.sh'])
-    version = run(['caddy', 'version'], text=True, capture_output=True).stdout
-    match = re.search(r'v(\d+)\.(\d+)\.(\d+)', version)
-    if not match or tuple(map(int, match.groups())) < (2, 10, 0):
-        raise ValueError('Caddy 2.10 or later is required. Upgrade the existing Caddy package before deploying.')
-    caddy_gid = grp.getgrnam('caddy').gr_gid
-    if SITE.exists() and not STATE.exists():
-        raise ValueError(f'{SITE} already exists without managed state. Inspect that file before assigning it to this installation.')
-    if STATE.exists() and json.loads(STATE.read_text()).get('format') != 1:
-        raise ValueError('Existing linspace state has an unsupported format')
-    main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing)
-    Path('/var/lib/linspace').mkdir(parents=True, exist_ok=True)
-    with Path('/var/lib/linspace/deploy.lock').open('w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    # Serialize host state reads, package installation, activation and verification
+    # with rollback, so every decision uses the state protected by this lock.
+    with deployment_lock():
+        for parent in ['/srv/linspace', '/etc/linspace', '/var/lib/linspace', '/usr/local/lib/stashd', '/etc/caddy/sites-enabled', '/etc/caddy/linspace.d']:
+            if Path(parent).is_symlink():
+                raise ValueError(f'Refusing managed symlink directory: {parent}')
+        if CURRENT.is_symlink() and (not CURRENT.is_dir() or not CURRENT.resolve().is_relative_to(Path('/srv/linspace/releases'))):
+            raise ValueError('The active release symlink must point to an existing managed release')
+        if CURRENT.exists() and not CURRENT.is_symlink():
+            raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
+        fresh_caddy = shutil.which('caddy') is None
+        run(['bash', release / 'install-caddy.sh'])
+        version = run(['caddy', 'version'], text=True, capture_output=True).stdout
+        match = re.search(r'v(\d+)\.(\d+)\.(\d+)', version)
+        if not match or tuple(map(int, match.groups())) < (2, 10, 0):
+            raise ValueError('Caddy 2.10 or later is required. Upgrade the existing Caddy package before deploying.')
+        caddy_gid = grp.getgrnam('caddy').gr_gid
+        if SITE.exists() and not STATE.exists():
+            raise ValueError(f'{SITE} already exists without managed state. Inspect that file before assigning it to this installation.')
+        if STATE.exists() and json.loads(STATE.read_text()).get('format') != 1:
+            raise ValueError('Existing linspace state has an unsupported format')
+        main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing)
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
         backup = Path('/var/backups/linspace') / stamp
         snapshot(backup)
@@ -315,21 +330,21 @@ def apply(release, args):
             except Exception as error:
                 linspace_log('ERROR', f'Automatic restore failed: {error}. Backup: {backup}')
             raise
-    linspace_log('OK', f'Activated release {release_id}; Stash uses SSH signatures.')
-    if args.skip_verify:
-        linspace_log('WARN', 'HTTPS verification skipped. Run ./linspace verify before declaring the site ready.')
-        return
-    linspace_log('STEP', 'Verify HTTPS routes')
-    last_error = None
-    for attempt in range(12):
-        try:
-            verify.verify(meta, args.local, quiet=True)
+        linspace_log('OK', f'Activated release {release_id}; Stash uses SSH signatures.')
+        if args.skip_verify:
+            linspace_log('WARN', 'HTTPS verification skipped. Run ./linspace verify before declaring the site ready.')
             return
-        except (RuntimeError, OSError) as error:
-            last_error = error
-            if attempt < 11:
-                time.sleep(5)
-    raise RuntimeError(f'Installed successfully, but HTTPS verification is not ready: {last_error}. Check DNS, ports 80/443, and journalctl -u caddy; then run ./linspace verify. The valid installation is retained.')
+        linspace_log('STEP', 'Verify HTTPS routes')
+        last_error = None
+        for attempt in range(12):
+            try:
+                verify.verify(meta, args.local, quiet=True)
+                return
+            except (RuntimeError, OSError) as error:
+                last_error = error
+                if attempt < 11:
+                    time.sleep(5)
+        raise RuntimeError(f'Installed successfully, but HTTPS verification is not ready: {last_error}. Check DNS, ports 80/443, and journalctl -u caddy; then run ./linspace verify. The valid installation is retained.')
 
 
 def main(argv=None):
@@ -345,8 +360,7 @@ def main(argv=None):
     if args.rollback:
         if os.geteuid() != 0 or args.rollback.is_symlink() or args.rollback.resolve().parent != Path('/var/backups/linspace'):
             raise ValueError('Rollback requires root and a direct backup directory under /var/backups/linspace')
-        with Path('/var/lib/linspace/deploy.lock').open('w') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with deployment_lock():
             restore(args.rollback)
     else:
         apply(args.release.resolve(), args)

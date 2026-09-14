@@ -4,6 +4,7 @@ import sys
 import subprocess
 import tempfile
 import unittest
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -14,6 +15,119 @@ import deploy
 
 
 class DeploymentTests(unittest.TestCase):
+    @contextmanager
+    def deployment_host(self):
+        """Run apply against temporary host files with every system effect mocked."""
+        with tempfile.TemporaryDirectory(prefix='linspace-deploy-test-') as tmp, ExitStack() as stack:
+            root = Path(tmp).resolve()
+
+            def host_path(value):
+                path = Path(value)
+                return root / path.relative_to('/') if path.is_absolute() and not path.is_relative_to(root) else path
+
+            for name in ('MAIN', 'SITE', 'FRAGMENT', 'LEGACY_TOKEN', 'SIGNERS', 'CURRENT', 'STATE', 'LOCK'):
+                stack.enter_context(patch.object(deploy, name, host_path(getattr(deploy, name))))
+            stack.enter_context(patch.object(deploy, 'Path', side_effect=host_path))
+            stack.enter_context(patch.object(deploy.os, 'geteuid', return_value=0))
+            stack.enter_context(patch.object(deploy.os, 'umask'))
+            stack.enter_context(patch.object(deploy.os, 'chown'))
+            stack.enter_context(patch.object(deploy.shutil, 'which', return_value='/mock/tool'))
+            stack.enter_context(patch.object(deploy.grp, 'getgrnam', return_value=SimpleNamespace(gr_gid=1)))
+            stack.enter_context(patch.object(deploy.grp, 'getgrgid', return_value=SimpleNamespace(gr_name='stash')))
+            account = SimpleNamespace(pw_uid=1, pw_gid=1, pw_dir='/var/lib/stashd', pw_shell='/usr/sbin/nologin')
+            stack.enter_context(patch.object(deploy.pwd, 'getpwnam', return_value=account))
+            run = stack.enter_context(patch.object(deploy, 'run', return_value=SimpleNamespace(stdout='v2.11.4')))
+            stack.enter_context(patch.object(deploy.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='405')))
+            stack.enter_context(patch.object(deploy, 'stop_writer'))
+            stack.enter_context(patch.object(deploy, 'snapshot'))
+            restore = stack.enter_context(patch.object(deploy, 'restore'))
+            verification = stack.enter_context(patch.object(deploy.verify, 'verify'))
+            host_path('/etc').mkdir()
+            host_path('/etc/debian_version').touch()
+            host_path('/run/systemd/system').mkdir(parents=True)
+            deploy.MAIN.parent.mkdir(parents=True)
+            deploy.MAIN.write_text('other.cn {\n respond "keep"\n}\n')
+            release = root / 'release'
+            for name in ('service/stashd.py', 'service/stashd.service', 'service/stashd.socket',
+                         'config/Caddyfile', 'config/stash.caddy.template', 'config/stash.allowed_signers'):
+                path = release / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('')
+            (release / 'site').mkdir()
+            meta = {'domain': 'mine.cn', 'stash_auth': 'ssh-signature-v1', 'internal_test': False, 'stash_key_count': 0}
+            stack.enter_context(patch.object(deploy, 'checked_release', return_value=(meta, 'release-id')))
+            args = SimpleNamespace(dry_run=False, internal_test=False, adopt_existing=False, skip_verify=False, local=True)
+            yield SimpleNamespace(release=release, args=args, run=run, verify=verification, restore=restore)
+
+    def test_busy_deployment_does_not_read_host_state_or_install_packages(self):
+        with self.deployment_host() as host, deploy.deployment_lock():
+            # A stale/invalid state must not even be inspected by the competing deploy.
+            deploy.STATE.write_text('invalid state')
+            with self.assertRaisesRegex(RuntimeError, 'Another deployment or rollback'):
+                deploy.apply(host.release, host.args)
+            host.run.assert_not_called()
+            host.verify.assert_not_called()
+            host.restore.assert_not_called()
+
+    def test_deployment_reads_current_config_only_after_acquiring_lock(self):
+        with self.deployment_host() as host:
+            acquire = deploy.deployment_lock
+            replacement = 'restored.cn {\n respond "restored before deployment acquired lock"\n}\n'
+
+            @contextmanager
+            def after_rollback():
+                deploy.MAIN.write_text(replacement)
+                with acquire():
+                    yield
+
+            with patch.object(deploy, 'deployment_lock', after_rollback):
+                deploy.apply(host.release, host.args)
+            self.assertEqual(deploy.MAIN.read_text(), replacement + '\n' + deploy.IMPORT + '\n')
+            host.restore.assert_not_called()
+
+    def test_deployment_holds_lock_through_installation_and_https_verification(self):
+        with self.deployment_host() as host:
+            def assert_locked(*args, **kwargs):
+                with self.assertRaisesRegex(RuntimeError, 'Another deployment or rollback'), deploy.deployment_lock():
+                    self.fail('Deployment released its lock too early')
+                return SimpleNamespace(stdout='v2.11.4')
+
+            host.run.side_effect = assert_locked
+            host.verify.side_effect = assert_locked
+            deploy.apply(host.release, host.args)
+            host.verify.assert_called_once()
+            with deploy.deployment_lock():
+                pass  # Normal completion releases the lock.
+
+    def test_failed_preflight_releases_lock_without_changing_config(self):
+        with self.deployment_host() as host:
+            before = deploy.MAIN.read_bytes()
+            host.run.side_effect = RuntimeError('installation unavailable')
+            with self.assertRaisesRegex(RuntimeError, 'installation unavailable'):
+                deploy.apply(host.release, host.args)
+            self.assertEqual(deploy.MAIN.read_bytes(), before)
+            host.restore.assert_not_called()
+            with deploy.deployment_lock():
+                pass
+
+    def test_rollback_uses_the_same_lock_as_deployment(self):
+        with self.deployment_host() as host:
+            backup = deploy.Path('/var/backups/linspace/snapshot')
+            backup.mkdir(parents=True)
+            with deploy.deployment_lock():
+                with self.assertRaisesRegex(RuntimeError, 'Another deployment or rollback'):
+                    deploy.main(['--rollback', str(backup)])
+            host.restore.assert_not_called()
+
+            def restore(directory):
+                self.assertEqual(directory, backup)
+                with self.assertRaisesRegex(RuntimeError, 'Another deployment or rollback'), deploy.deployment_lock():
+                    self.fail('Rollback did not acquire the deployment lock')
+
+            host.restore.side_effect = restore
+            deploy.main(['--rollback', str(backup)])
+            host.restore.assert_called_once_with(backup)
+
     def test_fresh_deployment_does_not_stop_missing_units(self):
         with patch.object(deploy, 'run', return_value=SimpleNamespace(stdout='not-found\n')) as run:
             deploy.stop_writer()

@@ -18,7 +18,11 @@ def probe(domain, path, method='HEAD', local=False, scheme='https'):
         if method == 'HEAD':
             command += ['--head']
         else:
-            command += ['-X', method, '-H', 'Content-Length: 0']
+            command += ['-X', method]
+            if method in ('PUT', 'POST'):
+                command += ['-H', 'Content-Length: 0']
+            if method == 'GET':
+                command += ['--max-filesize', str(1024 * 1024)]
         result = subprocess.run(command + [f'{scheme}://{domain}{path}'], text=True, capture_output=True)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or f'curl exited {result.returncode}')
@@ -45,6 +49,15 @@ def verify(meta, local=False, quiet=False):
             raise RuntimeError(f'{path}: unexpected status or headers (HTTP {status})')
         if not quiet:
             linspace_log('OK', f'{path} [{status}]')
+    # Missing channels return 404; empty uploaded files return 200. Check both
+    # methods and the alias without uploading fixtures or retaining public text.
+    for path in ['/stash/download', *[f'/stash/download{n}' for n in range(8)]]:
+        for method in ('HEAD', 'GET'):
+            status, headers = probe(domain, path, method, local)
+            if status not in (200, 404) or not headers.get('content-type', '').startswith('text/plain') or 'no-store' not in headers.get('cache-control', '') or headers.get('x-content-type-options') != 'nosniff':
+                raise RuntimeError(f'{method} {path}: unexpected status or headers (HTTP {status})')
+            if not quiet:
+                linspace_log('OK', f'{method} {path} [{status}]')
     for path, expected, method in [('/not-published', 404, 'HEAD'), ('/stash/clear', 401, 'POST'), ('/stash/download0', 401, 'PUT')]:
         status, _ = probe(domain, path, method, local)
         if status != expected:

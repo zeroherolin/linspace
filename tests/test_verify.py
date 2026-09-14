@@ -43,3 +43,66 @@ class VerificationTests(unittest.TestCase):
             with self.subTest(values=values), patch.object(verify, 'probe', side_effect=self.response) as probe, contextlib.redirect_stdout(io.StringIO()):
                 verify.verify(meta)
             self.assertEqual([call.args[1] for call in probe.call_args_list if call.args[1].startswith('/ssh/')], expected)
+
+    def test_all_stash_reads_and_alias_are_checked_without_writes(self):
+        meta = {'domain': 'verify.example.test', 'ssh_enabled': False}
+        expected = {(method, path) for method in ('HEAD', 'GET')
+                    for path in ['/stash/download', *[f'/stash/download{n}' for n in range(8)]]}
+        for status in (200, 404):
+            requests = []
+
+            def response(domain, path, method='HEAD', local=False, scheme='https'):
+                requests.append((method, path))
+                result = self.response(domain, path, method, local, scheme)
+                if (method, path) in expected:
+                    self.assertTrue(local)
+                    return status, {**result[1], 'content-length': '0'}
+                return result
+
+            with self.subTest(status=status), patch.object(verify, 'probe', side_effect=response), contextlib.redirect_stderr(io.StringIO()):
+                verify.verify(meta, local=True, quiet=True)
+            self.assertEqual({item for item in requests if item in expected}, expected)
+            self.assertEqual([item for item in requests if item[0] in ('PUT', 'POST')],
+                             [('POST', '/stash/clear'), ('PUT', '/stash/download0')])
+
+    def test_each_stash_read_failure_is_reported(self):
+        for path in ['/stash/download', *[f'/stash/download{n}' for n in range(8)]]:
+            for method in ('HEAD', 'GET'):
+                for status in (301, 401, 403, 405, 500):
+                    def response(domain, requested_path, requested_method='HEAD', local=False, scheme='https'):
+                        if (requested_path, requested_method) == (path, method):
+                            return status, self.response(domain, path)[1]
+                        return self.response(domain, requested_path, requested_method, local, scheme)
+
+                    with self.subTest(path=path, method=method, status=status), patch.object(verify, 'probe', side_effect=response):
+                        with self.assertRaisesRegex(RuntimeError, method + ' ' + path):
+                            verify.verify({'domain': 'verify.example.test', 'ssh_enabled': False}, quiet=True)
+
+    def test_stash_read_headers_are_required_for_existing_and_missing_channels(self):
+        for status in (200, 404):
+            for method in ('HEAD', 'GET'):
+                for header, value in [('content-type', 'text/html'), ('cache-control', 'public'),
+                                      ('x-content-type-options', '')]:
+                    def response(domain, path, requested_method='HEAD', local=False, scheme='https'):
+                        result = self.response(domain, path, requested_method, local, scheme)
+                        if path == '/stash/download7' and requested_method == method:
+                            return status, {**result[1], header: value}
+                        return result
+
+                    with self.subTest(status=status, method=method, header=header), patch.object(verify, 'probe', side_effect=response):
+                        with self.assertRaisesRegex(RuntimeError, method + ' /stash/download7'):
+                            verify.verify({'domain': 'verify.example.test', 'ssh_enabled': False}, quiet=True)
+
+    def test_probe_get_discards_and_bounds_body_without_sending_a_write_payload(self):
+        def request(command, **kwargs):
+            Path(command[command.index('-D') + 1]).write_text('HTTP/1.1 200 OK\nContent-Type: text/plain\n')
+            self.assertEqual(command[command.index('-o') + 1], '/dev/null')
+            self.assertEqual(command[command.index('-X') + 1], 'GET')
+            self.assertEqual(command[command.index('--max-filesize') + 1], str(1024 * 1024))
+            self.assertNotIn('-H', command)
+            self.assertNotIn('-L', command)
+            return type('Response', (), {'returncode': 0, 'stdout': '200'})()
+
+        with patch.object(verify.subprocess, 'run', side_effect=request):
+            self.assertEqual(verify.probe('verify.example.test', '/stash/download0', 'GET'),
+                             (200, {'content-type': 'text/plain'}))

@@ -10,6 +10,8 @@ From the repository root:
 
 The suite checks syntax, documentation links and anchors, configuration, catalog consistency, CLI behavior, reproducible builds, release integrity, recovery and Stash authentication.
 
+Regression tests cover deployment/rollback lock contention and Stash GET/HEAD failures for every channel and the channel-0 alias. Passive HTTPS verification accepts 200 for existing channels (including empty files) and 404 for missing channels, requiring plain-text, no-store and nosniff headers in both cases. It discards downloaded text and never uploads a test fixture. A missing channel cannot prove that populated content is served correctly; include populated-channel checks in release validation.
+
 It needs curl, OpenSSL, OpenSSH, local Unix sockets and loopback TCP. Client tests use temporary homes, synthetic keys, an isolated agent and a temporary HTTPS certificate. No personal configuration or root privileges are needed. Linux is the primary client target; test macOS in temporary HOME, CODEX_HOME and XDG directories. Never load real credentials or modify shell profiles, and remove test directories, caches and child processes afterward.
 
 Status messages use `STEP`, `OK`, `INFO`, `WARN` and `ERROR` on stderr. Colors are limited to interactive terminals and can be disabled with `NO_COLOR=1`. URL lists and PID queries remain plain stdout.

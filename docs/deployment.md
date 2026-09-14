@@ -45,6 +45,8 @@ Caddy serves only allowlisted paths. The checkout, backups and service code are 
 
 Deployment takes a backup before changing managed state. A file or service failure attempts rollback. A final HTTPS check failure retains the installed site for diagnosis; fix the network issue and rerun `./linspace verify`.
 
+Deployment and rollback share a lock. Deployment holds it while reading host configuration, installing Caddy, activating the release and checking HTTPS. A competing operation exits before changing host state. The lock coordinates linspace commands; avoid manually editing managed Caddy files during deployment.
+
 To restore a backup printed by deployment:
 
 ```sh
