@@ -56,7 +56,7 @@ class BuildTests(unittest.TestCase):
             self.assertIn('/help', (release / 'config/Caddyfile').read_text())
             self.assertIn('href="/help"', (release / 'site/index.html').read_text())
             help_page = (release / 'site/help').read_text()
-            self.assertIn('<title>Help · Site &lt;test&gt;</title>', help_page)
+            self.assertIn('<title>Linspace Help · Site &lt;test&gt;</title>', help_page)
             self.assertIn('https://custom.example.test/claude/install', help_page)
             self.assertIn('https://custom.example.test/codex/uninstall', help_page)
             self.assertNotIn('your-domain.cn', help_page)

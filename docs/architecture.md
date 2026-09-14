@@ -18,7 +18,7 @@
 | `src/stash/` | Signed upload clients and the text writer |
 | `vendor/` | Bundled `tomli` and PyYAML ZIPs with `manifest.json`, plus third-party notices |
 
-Claude JSON is serialized during build; Codex TOML preserves formatting. `docs/help.md` supports headings, paragraphs, lists, inline and fenced code; text is escaped and raw HTML is not passed through. Credentials and operator input paths are excluded from public releases.
+Claude JSON is serialized during build; Codex TOML preserves formatting. `docs/help.md` supports headings, paragraphs, lists, inline and fenced code; shell blocks get lightweight token highlighting, text is escaped and raw HTML is not passed through. Credentials and operator input paths are excluded from public releases.
 
 ## Public routes
 

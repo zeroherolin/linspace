@@ -1,4 +1,4 @@
-# Help
+# Linspace Help
 
 Linux or macOS with Bash and curl. Run as your own account, without `sudo`.
 

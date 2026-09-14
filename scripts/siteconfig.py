@@ -157,13 +157,15 @@ def stash_keys(config, published_key, root=ROOT):
     return sorted({' '.join(key.decode().split()[:2]) for key in keys})
 
 
-def page(config, template='config/index.html.in', body=None):
-    """Fill an HTML template with escaped site values; body is pre-rendered HTML."""
+def page(config, template='config/index.html.in', body=None, title=None):
+    """Fill an HTML template with escaped site values; body and title are pre-rendered HTML."""
     text = (ROOT / template).read_text(encoding='utf-8')
     text = text.replace('@@SITE_NAME@@', html.escape(config['site_name'], quote=True))
     text = text.replace('@@ICP_NUMBER@@', html.escape(config['icp_number'] or 'Internal test — not for public deployment', quote=True))
     if body is not None:
         text = text.replace('@@BODY@@', body)
+    if title is not None:
+        text = text.replace('@@TITLE@@', title)
     if re.search(r'@@[A-Z_]+@@', text):
         raise ValueError(f'Unresolved template token in {template}')
     return text
