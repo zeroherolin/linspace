@@ -19,9 +19,13 @@ HEADING = re.compile(r'^(#{1,3})\s+(.+?)\s*#*$')
 BULLET = re.compile(r'^\s*[-*]\s+(.+)$')
 NUMBERED = re.compile(r'^\s*\d+[.)]\s+(.+)$')
 
-SHELL_VARIABLE = re.compile(r'(\$(?:\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9@#?*!$-]))')
-SHELL_WORD = re.compile(r'[^\s\'"|&;<>$]+')
-SHELL_ASSIGNMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=')
+SHELL_WORD = re.compile(r'[^\s\'"|&;]+')
+# Shell builtins and the file commands that read as keywords in a setup snippet.
+SHELL_KEYWORDS = frozenset('''
+    alias break case cd command continue declare do done echo elif else esac eval exec exit export fi for
+    function if in local printf pwd read readonly return set shift source then trap unalias unset until while
+    cat chmod chown cp ln mkdir mv rm rmdir touch
+'''.split())
 
 
 def markdown_inline(text):
@@ -52,7 +56,7 @@ def _span(text, kind=None):
 
 
 def _highlight_shell_line(line, expect_command):
-    """Mark comments, strings, variables, operators and command names on one line."""
+    """Mark comments, quoted strings and keyword commands on one line."""
     out = []
     i, n = 0, len(line)
     continued = False
@@ -67,59 +71,49 @@ def _highlight_shell_line(line, expect_command):
         elif ch == '#' and (i == 0 or line[i - 1] in ' \t'):
             out.append(_span(line[i:], 'c'))
             break
-        elif ch == "'":
-            j = line.find("'", i + 1)
-            j = n if j < 0 else j + 1
+        elif ch in '\'"':
+            j = i + 1
+            while j < n and line[j] != ch:
+                j += 2 if ch == '"' and line[j] == '\\' else 1
+            j = min(j + 1, n)
             out.append(_span(line[i:j], 's'))
             i = j
             expect_command = False
-        elif ch == '"':
-            j = i + 1
-            while j < n and line[j] != '"':
-                j += 2 if line[j] == '\\' else 1
-            j = min(j + 1, n)
-            parts = (_span(part, 'v') if part.startswith('$') else html.escape(part)
-                     for part in SHELL_VARIABLE.split(line[i:j]) if part)
-            out.append('<span class="s">' + ''.join(parts) + '</span>')
-            i = j
-            expect_command = False
         elif ch == '\\' and i == n - 1:
-            out.append(_span('\\', 'o'))
+            out.append('\\')
             continued = True
             i += 1
-        elif ch in '|&;<>':
+        elif ch in '|&;':
             j = i
-            while j < n and line[j] in '|&;<>':
+            while j < n and line[j] in '|&;':
                 j += 1
-            out.append(_span(line[i:j], 'o'))
+            out.append(html.escape(line[i:j]))
             i = j
             expect_command = True
-        elif ch == '$' and SHELL_VARIABLE.match(line, i):
-            token = SHELL_VARIABLE.match(line, i).group(0)
-            out.append(_span(token, 'v'))
-            i += len(token)
-            expect_command = False
         else:
             word = SHELL_WORD.match(line, i)
             word = word.group(0) if word else ch
-            assignment = SHELL_ASSIGNMENT.match(word)
-            if assignment:
-                out.append(_span(assignment.group(1), 'v') + '=')
-                i += assignment.end()
-                continue
-            out.append(_span(word, 'k' if expect_command else None))
+            out.append(_span(word, 'k' if expect_command and word in SHELL_KEYWORDS else None))
             i += len(word)
             expect_command = False
     return ''.join(out), expect_command if continued else True
 
 
 def highlight_shell(code):
-    """Return escaped HTML for a shell snippet with a small, quiet set of token classes."""
+    """Return escaped HTML lines for a shell snippet with a small, quiet set of token classes."""
     lines, expect_command = [], True
     for line in code.split('\n'):
         rendered, expect_command = _highlight_shell_line(line, expect_command)
         lines.append(rendered)
-    return '\n'.join(lines)
+    return lines
+
+
+def code_block(language, code):
+    """Wrap each line so the page can number lines without adding text to copies."""
+    lines = highlight_shell(code) if language == 'bash' else [html.escape(line) for line in code.split('\n')]
+    # Block-level spans supply the line breaks; a literal newline would add a blank row under white-space: pre.
+    body = ''.join(f'<span class="line">{line}</span>' for line in lines)
+    return f'<pre data-language="{language}"><code>{body}</code></pre>'
 
 
 def render_markdown(markdown):
@@ -145,9 +139,7 @@ def render_markdown(markdown):
         line = raw.rstrip()
         if fence:
             if line.startswith(fence[0]):
-                code = '\n'.join(code_lines)
-                rendered = highlight_shell(code) if fence[1] == 'bash' else html.escape(code)
-                blocks.append(f'<pre data-language="{fence[1]}"><code>{rendered}</code></pre>')
+                blocks.append(code_block(fence[1], '\n'.join(code_lines)))
                 fence = None
                 code_lines = []
             else:

@@ -11,7 +11,7 @@ import helppage
 
 
 def strip_tags(fragment):
-    return html.unescape(re.sub(r'<[^>]+>', '', fragment))
+    return html.unescape(re.sub(r'<[^>]+>', '', fragment.replace('</span><span class="line">', '\n')))
 
 
 class HelpPageTests(unittest.TestCase):
@@ -19,13 +19,13 @@ class HelpPageTests(unittest.TestCase):
 
     def test_markdown_subset_renders_escaped_html(self):
         source = ('# Title\n\nIntro with `code`, **bold**, *em* and a [link](/help).\n\n'
-                  '## Steps\n\n- one\n- two <b>\n\n1. first\n2. second\n\n```text\nplain <x>\n```\n')
+                  '## Steps\n\n- one\n- two <b>\n\n1. first\n2. second\n\n```text\nplain <x>\nmore\n```\n')
         body = helppage.render_markdown(source)
         self.assertIn('<h1>Title</h1>', body)
         self.assertIn('<code>code</code>, <strong>bold</strong>, <em>em</em> and a <a href="/help" rel="noopener">link</a>.', body)
         self.assertIn('<ul>\n<li>one</li>\n<li>two &lt;b&gt;</li>\n</ul>', body)
         self.assertIn('<ol>\n<li>first</li>\n<li>second</li>\n</ol>', body)
-        self.assertIn('<pre data-language="text"><code>plain &lt;x&gt;</code></pre>', body)
+        self.assertIn('<pre data-language="text"><code><span class="line">plain &lt;x&gt;</span><span class="line">more</span></code></pre>', body)
 
     def test_shell_blocks_are_highlighted_without_changing_text(self):
         code = ('# note <b>\n'
@@ -35,14 +35,13 @@ class HelpPageTests(unittest.TestCase):
         body = helppage.render_markdown('```sh\n' + code + '```\n')
         pre = re.search(r'<pre data-language="bash"><code>(.*)</code></pre>', body, re.S).group(1)
         self.assertEqual(strip_tags(pre), code.rstrip('\n'))
+        self.assertEqual(pre.count('<span class="line">'), 4)
         self.assertNotIn('<b>', pre)
         self.assertIn('<span class="c"># note &lt;b&gt;</span>', pre)
         self.assertIn('<span class="c"># trailing</span>', pre)
-        self.assertIn('<span class="k">curl</span>', pre)
-        self.assertIn('<span class="o">|</span> <span class="k">bash</span>', pre)
-        self.assertIn('<span class="v">PATH</span>=<span class="s">&quot;<span class="v">$HOME</span>/.local/bin:<span class="v">$PATH</span>&quot;</span>', pre)
-        self.assertIn('<span class="o">\\</span>\n    <span class="k">export</span>', pre)
-        self.assertIn('<span class="s">&#x27;a&lt;b&#x27;</span>', pre)
+        self.assertIn('curl -fsSL https://x.test/a | bash &amp;&amp; <span class="k">mkdir</span> -p ~/.x', pre)
+        self.assertIn('<span class="k">export</span> PATH=<span class="s">&quot;$HOME/.local/bin:$PATH&quot;</span> &amp;&amp; \\', pre)
+        self.assertIn('    <span class="k">export</span> TOKEN=<span class="s">&#x27;a&lt;b&#x27;</span>', pre)
 
     def test_raw_html_and_unsafe_links_stay_text(self):
         body = helppage.render_markdown('<script>alert(1)</script>\n\n[x](javascript:alert(1)) [y](http://insecure.example)\n')
