@@ -47,33 +47,33 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.8 var(--sans);
+  font: 15px/1.75 var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 main, footer {
   width: 100%;
-  max-width: 62rem;
+  max-width: 56rem;
   margin: 0 auto;
-  padding-left: 2.5rem;
-  padding-right: 2.5rem;
+  padding-left: 2rem;
+  padding-right: 2rem;
 }
 main { flex: 1; padding-top: 4rem; padding-bottom: 4rem; }
 h1 {
   margin: 0 0 0.75rem;
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.01em;
 }
-h1 + p { margin: 0 0 2.75rem; color: var(--muted); }
+h1 + p { margin: 0 0 2.5rem; color: var(--muted); }
 h2 {
-  margin: 2.75rem 0 1rem;
-  font-size: 1.375rem;
+  margin: 2.5rem 0 0.875rem;
+  font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.35;
 }
-h3 { margin: 1.75rem 0 0.75rem; font-size: 1.125rem; font-weight: 600; }
+h3 { margin: 1.5rem 0 0.625rem; font-size: 1.05rem; font-weight: 600; }
 p, ul, ol { margin: 0 0 1rem; }
 ul, ol { padding-left: 1.5rem; }
 li { margin: 0.25rem 0; }
@@ -88,10 +88,10 @@ code {
 pre {
   position: relative;
   overflow-x: auto;
-  margin: 0 0 1.75rem;
-  padding: 3.1rem 1.75rem 1.6rem;
+  margin: 0 0 1.5rem;
+  padding: 2.5rem 1.25rem 1.2rem;
   border: 1px solid var(--rule);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--pre-bg);
   color: var(--pre-fg);
   tab-size: 4;
@@ -100,10 +100,10 @@ pre {
 pre::before {
   content: attr(data-language);
   position: absolute;
-  top: 1rem;
-  right: 1.75rem;
+  top: 0.85rem;
+  right: 1.25rem;
   color: var(--muted);
-  font: 400 0.9rem/1 var(--sans);
+  font: 400 0.8rem/1 var(--sans);
   text-transform: capitalize;
 }
 pre code {
@@ -111,8 +111,8 @@ pre code {
   padding: 0;
   border-radius: 0;
   background: none;
-  font-size: 0.95rem;
-  line-height: 2;
+  font-size: 0.875rem;
+  line-height: 1.85;
   white-space: pre;
 }
 pre .line { display: block; }
@@ -120,8 +120,8 @@ pre .line::before {
   content: counter(line);
   counter-increment: line;
   display: inline-block;
-  width: 2rem;
-  margin-right: 1.5rem;
+  width: 1.75rem;
+  margin-right: 1.25rem;
   color: var(--faint);
   font-size: 0.9em;
   text-align: right;
@@ -144,16 +144,16 @@ footer {
 }
 footer a { color: var(--muted); }
 @media (max-width: 720px) {
-  body { font-size: 15px; }
+  body { font-size: 14.5px; }
   main, footer { padding-left: 1.25rem; padding-right: 1.25rem; }
   main { padding-top: 2.5rem; padding-bottom: 3rem; }
   footer { padding-top: 1.25rem; padding-bottom: 2.5rem; }
-  h1 { font-size: 1.65rem; }
-  h1 + p { margin-bottom: 2rem; }
-  h2 { margin-top: 2.25rem; font-size: 1.2rem; }
-  pre { padding: 2.75rem 1rem 1.25rem; border-radius: 8px; }
-  pre::before { right: 1rem; top: 0.9rem; font-size: 0.8rem; }
-  pre code { font-size: 0.82rem; line-height: 1.9; }
+  h1 { font-size: 1.5rem; }
+  h1 + p { margin-bottom: 1.75rem; }
+  h2 { margin-top: 2rem; font-size: 1.15rem; }
+  pre { padding: 2.4rem 0.9rem 1rem; border-radius: 6px; }
+  pre::before { right: 0.9rem; top: 0.8rem; font-size: 0.75rem; }
+  pre code { font-size: 0.8rem; line-height: 1.8; }
   pre .line::before { width: 1.5rem; margin-right: 0.9rem; }
 }
 </style>
