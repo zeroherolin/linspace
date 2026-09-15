@@ -1,10 +1,32 @@
 #!/usr/bin/env bash
-set -euo pipefail
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-python=/usr/local/lib/linspace-mihomo/python
-[[ -x $python ]] || python=/usr/bin/python3
-"$python" - "$@" <<'LINSPACE_SUB_PY'
+@@include:src/common/ui.sh@@
+# Import a subscription. Usage: curl -fsSL https://@@DOMAIN@@/mihomo/sub | bash -s -- URL_OR_FILE
+# Without an argument the address is read from the terminal, so it stays out of
+# shell history and the process list.
+main() (
+    set -Eeuo pipefail
+    export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    umask 077
+    case ${1:-} in
+        -h|--help)
+            printf 'Usage: bash sub [URL_OR_FILE]\nWithout an argument, the HTTPS subscription address or local YAML path is read from the terminal.\n'
+            exit 0 ;;
+    esac
+    [[ $# -le 1 ]] || { linspace_log ERROR 'Pass one subscription address or file path.'; exit 1; }
+    source=${1:-}
+    if [[ -z $source ]]; then
+        ( : < /dev/tty ) 2>/dev/null || { linspace_log ERROR 'No subscription given. Pass the address as an argument or run from a terminal.'; exit 1; }
+        IFS= read -rs -p 'Subscription URL or local YAML file: ' source < /dev/tty || { linspace_log ERROR 'Could not read the subscription address.'; exit 1; }
+        printf '\n' >&2
+        [[ -n $source ]] || { linspace_log ERROR 'The subscription address is empty.'; exit 1; }
+    fi
+    python=/usr/local/lib/linspace-mihomo/python
+    [[ -x $python ]] || python=/usr/bin/python3
+    # The address travels on fd 3, never as a Python argument.
+    "$python" - 3<<< "$source" <<'LINSPACE_SUB_PY'
 import sys
 sys.path.insert(0, '/usr/local/lib/linspace-mihomo/vendor.zip')
 @@include:src/mihomo/sub.py@@
 LINSPACE_SUB_PY
+)
+main "$@"

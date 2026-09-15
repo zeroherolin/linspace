@@ -13,7 +13,7 @@ Use Debian 12+ or Ubuntu 22.04+ with systemd and root/sudo access. Run project c
 Use an already-resolved, ICP-filed domain with its approved website name and complete filing number.
 
 - Point its A record to the server; add AAAA only if public IPv6 works.
-- Allow TCP **80/443** in the cloud security group and host firewall. Keep SSH available.
+- Allow TCP **80/443** in the cloud security group and host firewall. Caddy also advertises HTTP/3; allow UDP **443** as well, or clients fall back to TCP after a short delay. Keep SSH available.
 - Free ports 80/443, or use an existing Caddy 2.10+ installation.
 - Allow outbound access to package repositories and certificate authorities.
 
@@ -79,7 +79,7 @@ Verification checks public HTTPS without changing channel data. If it fails, use
 
 ## Use
 
-The [user guide](docs/usage.md) covers SSH key import, Mihomo, Claude Code, Codex, Stash and uninstall. The site's `/help` page is built from [docs/help.md](docs/help.md). Installers reuse compatible existing clients and fall back to verified downloads when upstream access fails. Uninstall keeps Claude Code and Codex conversation history. Stash reads are public; writes use SSH signatures.
+The [user guide](docs/usage.md) covers SSH key import, Mihomo, Claude Code, Codex, Stash and uninstall. The site's `/help` page is built from [docs/help.md](docs/help.md). Installers reuse compatible existing clients and fall back to verified downloads when upstream access fails. Uninstall keeps Claude Code and Codex conversation history and user-authored files. Stash reads are public; writes use SSH signatures.
 
 ## Update
 

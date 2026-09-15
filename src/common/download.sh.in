@@ -15,13 +15,20 @@ linspace_proxy_set() {
 }
 
 linspace_fetch() {
-    local url=$1 target=$2 limit=$3 mode=$4 budget=$5
-    local proxy=(--noproxy "${no_proxy:-${NO_PROXY:-}}") progress=(-sS)
+    local url=$1 target=$2 limit=$3 mode=$4 budget=$5 errors=$6
+    local proxy=(--noproxy "${no_proxy:-${NO_PROXY:-}}")
     [[ $mode != direct ]] || proxy=(--noproxy '*' --proxy '')
-    [[ ! -t 2 ]] || progress=(--progress-bar --show-error)
-    curl -q -fL "${progress[@]}" --globoff --proto '=https' --proto-redir '=https' \
+    # The caller captures stderr for diagnostics, so the progress bar is decided from
+    # the caller's terminal and written straight to it; curl's error then shows there too.
+    if [[ ${LINSPACE_DOWNLOAD_TTY:-0} == 1 ]]; then
+        curl -q -fL --progress-bar --show-error --globoff --proto '=https' --proto-redir '=https' \
+            "${proxy[@]}" --connect-timeout 5 --max-time "$budget" --retry 0 \
+            --speed-limit 131072 --speed-time 10 --max-filesize "$limit" "$url" -o "$target" 2>/dev/tty
+        return
+    fi
+    curl -q -fL -sS --globoff --proto '=https' --proto-redir '=https' \
         "${proxy[@]}" --connect-timeout 5 --max-time "$budget" --retry 0 \
-        --speed-limit 131072 --speed-time 10 --max-filesize "$limit" "$url" -o "$target"
+        --speed-limit 131072 --speed-time 10 --max-filesize "$limit" "$url" -o "$target" 2>"$errors"
 }
 
 linspace_file() (
@@ -47,11 +54,19 @@ linspace_file() (
         route=direct
         if [[ $mode == environment ]] && linspace_proxy_set; then route=proxy; fi
         linspace_log STEP "Download ${LINSPACE_DOWNLOAD_LABEL:-file} from $host ($route)"
-        if linspace_fetch "$url" "$temporary" "$size" "$mode" "$budget" 2>"$temporary.err" && linspace_checksum "$temporary" "$sha" "$size"; then
-            mv -f -- "$temporary" "$cached" || return 1
-            return 0
+        : > "$temporary.err"
+        if linspace_fetch "$url" "$temporary" "$size" "$mode" "$budget" "$temporary.err"; then
+            if linspace_checksum "$temporary" "$sha" "$size"; then
+                mv -f -- "$temporary" "$cached" || return 1
+                return 0
+            fi
+            linspace_log WARN "Checksum or size mismatch from $host"
+        elif [[ -s $temporary.err ]]; then
+            # curl's own diagnostic only; the URL is not repeated.
+            linspace_log WARN "Source failed: $host: $(tail -n 1 "$temporary.err" | cut -c1-200)"
+        else
+            linspace_log WARN "Source failed: $host"
         fi
-        linspace_log WARN "Source failed or checksum mismatch: $host"
         : > "$temporary" || return 1
     done
     return 1
@@ -68,6 +83,9 @@ linspace_asset() (
     set -uo pipefail
     name=$1 target=$2
     LINSPACE_DOWNLOAD_LABEL=$name
+    # Decide here, where stderr is still the caller's terminal, whether a progress bar can be shown.
+    LINSPACE_DOWNLOAD_TTY=0
+    [[ ! -t 2 || ! -w /dev/tty ]] || LINSPACE_DOWNLOAD_TTY=1
     linspace_asset_info "$name" || return 1
     cache=${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}
     [[ $cache == /* && ! -L $cache ]] || return 1

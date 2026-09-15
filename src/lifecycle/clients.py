@@ -141,12 +141,20 @@ class Client:
             if result.returncode == 0 and re.search(re.escape(self.package) + r'(?:["\s@]|$)', result.stdout):
                 self.managers.append(([tool, *uninstall, self.package], None))
 
+    # Conversation history plus content the user wrote by hand. Everything else in the
+    # configuration directory (settings, credentials, installed plugins, caches, logs) is removed.
+    RETAINED = {
+        'claude': {'projects', 'history.jsonl', 'CLAUDE.md', 'commands', 'agents', 'skills', 'plans', 'hooks', 'rules'},
+        'codex': {'sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'AGENTS.md', 'prompts', 'skills', 'memories', 'rules', 'hooks'},
+    }
+
     def history(self, dry_run):
+        retained = self.RETAINED[self.name]
         for directory in self.configs:
             if self.name == 'claude':
-                keep = lambda name: name in {'projects', 'history.jsonl'}
+                keep = lambda name: name in retained
             else:
-                keep = lambda name: name in {'sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl'} or bool(re.fullmatch(r'state_\d+\.sqlite(?:-wal|-shm)?', name))
+                keep = lambda name: name in retained or bool(re.fullmatch(r'state_\d+\.sqlite(?:-wal|-shm)?', name))
             clear_history_except(directory, keep, dry_run)
         if self.name == 'claude':
             for path in self.home.glob('.claude.json*'):
@@ -221,18 +229,23 @@ class Client:
         # Prior installer versions used a shared content-addressed cache.
         for digest in '@@CLIENT_CACHE_HASHES@@'.split():
             remove(cache / 'linspace' / digest, dry_run)
+        # The Codex auth helper may have downloaded a private Python runtime.
+        if self.name == 'codex':
+            for runtime in (cache / 'linspace').glob('python-*'):
+                if not runtime.is_symlink():
+                    remove(runtime, dry_run)
         if not dry_run:
             leftovers = [p for p in self.launchers if p.exists() or p.is_symlink()]
             leftovers += [p for p in self.roots + list(self.npm) if p.exists() or p.is_symlink()]
             if leftovers:
                 raise RuntimeError('Some installation files remain; resolve permissions and rerun uninstall.')
-        linspace_log('OK', 'Preview complete; no changes made.' if dry_run else f'{self.name} removed; only conversation history retained.')
+        linspace_log('OK', 'Preview complete; no changes made.' if dry_run else f'{self.name} removed; conversation history and your own files were kept.')
         linspace_log('INFO', 'Shell startup files and project directories are untouched. Open a new terminal to clear cached command paths.')
         linspace_log('INFO', 'Also clear API tokens exported in your shell; a child script cannot change the parent environment.')
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Stop and uninstall the CLI from recognized sources; keep only conversation history.')
+    parser = argparse.ArgumentParser(description='Stop and uninstall the CLI from recognized sources; keep conversation history and user-authored files.')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--bin', action='append', default=[], help='Additional absolute executable path outside PATH')
     args = parser.parse_args()

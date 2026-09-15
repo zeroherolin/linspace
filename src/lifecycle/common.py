@@ -77,8 +77,9 @@ def dedicated(path, home=None):
         raise ValueError(f'Refusing a broad data path: {path}')
     for parent in path.parents:
         if parent.is_symlink():
-            aliases = {'/bin': '/usr/bin', '/sbin': '/usr/sbin', '/lib': '/usr/lib',
-                       '/lib64': '/usr/lib64', '/var': '/private/var', '/tmp': '/private/tmp'}
+            # merged-/usr layouts on Linux; /private aliases on macOS.
+            aliases = {'/bin': '/usr/bin', '/sbin': '/usr/sbin', '/lib': '/usr/lib', '/lib64': '/usr/lib64',
+                       '/etc': '/private/etc', '/var': '/private/var', '/tmp': '/private/tmp'}
             if aliases.get(str(parent)) != str(parent.resolve()):
                 raise ValueError(f'Refusing a symlinked parent directory: {parent}')
     return path

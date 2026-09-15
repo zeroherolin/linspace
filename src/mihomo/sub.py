@@ -25,7 +25,8 @@ SOCKET = Path('/run/mihomo/control.sock')
 BIN = Path('/usr/local/bin/mihomo')
 PROCESS = Path('/usr/local/lib/linspace-mihomo/process.py')
 MARKER = Path('/usr/local/lib/linspace-mihomo/managed')
-LOCK = Path('/run/lock/linspace-mihomo.lock')
+# Shared with install, restart and uninstall; the directory is root-owned 0700.
+LOCK = Path('/run/linspace-mihomo/lock')
 TEMPLATE = Path('/usr/local/lib/linspace-mihomo/baseline.yaml')
 GEO_SHA = '@@GEO_SHA@@'
 GROUP = 'PROXY'
@@ -261,6 +262,16 @@ def probe_node(name, sock=None):
         return False
 
 
+def first_available(names, sock=None):
+    """Probe the imported proxies in order and select the first that passes the HTTPS check."""
+    for index, name in enumerate(names, 1):
+        linspace_log('STEP', f'Check proxy {index}/{len(names)}: {name}')
+        if probe_node(name, sock):
+            api('/proxies/' + urllib.parse.quote(GROUP, safe=''), 'PUT', {'name': name}, sock=sock)
+            return name
+    return None
+
+
 def select_first_available(stage, names):
     sock = stage / 'control.sock'
     account = pwd.getpwnam('mihomo')
@@ -284,12 +295,10 @@ def select_first_available(stage, names):
                 time.sleep(.2)
             else:
                 fail('The trial API is not ready. The existing service was not changed.')
-            for index, name in enumerate(names, 1):
-                linspace_log('STEP', f'Check proxy {index}/{len(names)}: {name}')
-                if probe_node(name, sock):
-                    api('/proxies/' + urllib.parse.quote(GROUP, safe=''), 'PUT', {'name': name}, sock=sock)
-                    return name
-            fail('No proxy passed the HTTPS check. The existing configuration was not changed.')
+            selected = first_available(names, sock)
+            if selected is None:
+                fail('No proxy passed the HTTPS check. The existing configuration was not changed.')
+            return selected
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
@@ -334,10 +343,64 @@ def verify_runtime(names, selected):
         fail('Runtime provider settings differ from the managed policy.')
 
 
-def main(argv=None):
+def read_source(argv=None):
+    """Return the subscription source, or None for --reselect. The source comes from argv,
+    or from inherited fd 3 so it never appears in a process list."""
     parser = argparse.ArgumentParser(prog='sub', description='Import a subscription and select the first proxy in order that passes the HTTPS check.')
-    parser.add_argument('source', help='HTTPS subscription URL, or path to a local Clash/mihomo YAML file')
+    parser.add_argument('source', nargs='?', help='HTTPS subscription URL, or path to a local Clash/mihomo YAML file; omitted when passed on fd 3')
+    parser.add_argument('--reselect', action='store_true',
+                        help='restart the managed process and, when the selected proxy fails the HTTPS check, select the first working proxy of the imported subscription')
     args = parser.parse_args(argv)
+    if args.reselect:
+        if args.source is not None:
+            parser.error('--reselect takes no subscription; it reuses the imported one.')
+        return None
+    if args.source is not None:
+        return args.source
+    try:
+        with os.fdopen(3, 'r', encoding='utf-8', errors='strict') as handle:
+            source = handle.readline()
+    except (OSError, ValueError, UnicodeError):
+        fail('Pass the subscription address as an argument or on file descriptor 3.')
+    source = source.rstrip('\r\n')
+    if not source:
+        fail('The subscription address is empty.')
+    return source
+
+
+def reselect():
+    """Restart the managed process and keep its selection while that node works. Otherwise
+    repeat the import-time search: the first proxy in subscription order that passes the
+    HTTPS check becomes the selection."""
+    if not CONFIG.is_file() or not (ROOT / 'proxies.yaml').is_file():
+        fail('No subscription is imported yet. Import one with the sub script first.')
+    linspace_log('STEP', 'Restart mihomo')
+    control('restart')
+    wait_ready()
+    group = api('/proxies')['proxies'].get(GROUP) or {}
+    names, previous = group.get('all'), group.get('now')
+    if not isinstance(names, list) or not names or any(not isinstance(name, str) for name in names):
+        fail('The running configuration exposes no imported proxies. Import the subscription again.')
+    selected = None
+    if isinstance(previous, str) and previous in names:
+        linspace_log('STEP', f'Check selected proxy: {previous}')
+        if probe_node(previous):
+            selected = previous
+        else:
+            linspace_log('WARN', f'{previous} failed the HTTPS check; searching the subscription in order.')
+            selected = first_available([name for name in names if name != previous])
+    else:
+        selected = first_available(names)
+    if selected is None:
+        fail(f'No proxy passed the HTTPS check. mihomo keeps running with {GROUP} -> {previous}; retry later or import a new subscription.')
+    verify_proxy_request()
+    change = '' if selected == previous else f' (switched from {previous})'
+    linspace_log('OK', f'mihomo restarted; {GROUP} -> {selected}{change}')
+    linspace_log('INFO', 'Proxy: 127.0.0.1:7890; log: /var/log/mihomo/mihomo.log')
+
+
+def main(argv=None):
+    source_value = read_source(argv)
     if os.geteuid() != 0:
         fail('Run this script as root.')
     if not MARKER.is_file() or MARKER.read_text().strip() != 'linspace-mihomo-background-v1':
@@ -346,11 +409,19 @@ def main(argv=None):
         if key.lower() in {'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'} or key.startswith('CLASH_') or key == 'SAFE_PATHS':
             os.environ.pop(key, None)
     os.umask(0o077)
-    with LOCK.open('w') as lock:
+    if LOCK.parent.is_symlink() or LOCK.is_symlink():
+        fail('The operation lock must not be a symbolic link.')
+    LOCK.parent.mkdir(mode=0o700, exist_ok=True)
+    if LOCK.parent.stat().st_uid != 0 or (LOCK.exists() and LOCK.stat().st_uid != 0):
+        fail('The operation lock directory must belong to root.')
+    with LOCK.open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             fail('Another mihomo installation or update is running.')
+        if source_value is None:
+            reselect()
+            return
         if ROOT.is_symlink() or CONFIG.parent.is_symlink() or any(p.is_symlink() for p in list(targets().values()) + [ROOT / 'GeoIP.dat']):
             fail('The data directory and managed files must not be symbolic links.')
         if hashlib.sha256((ROOT / 'GeoIP.dat').read_bytes()).hexdigest() != GEO_SHA:
@@ -364,15 +435,15 @@ def main(argv=None):
         keep_work = False
         try:
             raw = work / 'subscription.yaml'
-            if '://' not in args.source:
-                source = Path(args.source)
+            if '://' not in source_value:
+                source = Path(source_value)
                 if not source.is_file():
                     fail(f'{source} is not a file. Pass an HTTPS subscription URL or a local YAML file path.')
                 if not 0 < source.stat().st_size <= MAX_SIZE:
                     fail('The proxy file is empty or too large.')
                 shutil.copyfile(source, raw)
             else:
-                url = args.source
+                url = source_value
                 if not download(url, raw):
                     if not was_active:
                         fail('Direct download failed and no existing proxy is running. The current configuration was not changed.')

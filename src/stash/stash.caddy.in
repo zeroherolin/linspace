@@ -33,5 +33,13 @@ handle @stash_api {
     }
     reverse_proxy unix//run/stashd/ssh.sock {
         header_up -Authorization
+        # The site block already sets this header; avoid emitting it twice.
+        header_down -X-Content-Type-Options
+        # stashd answers one request per connection and closes; never reuse an idle
+        # upstream connection for a PUT/POST that cannot be retried.
+        transport http {
+            keepalive off
+            response_header_timeout 30s
+        }
     }
 }

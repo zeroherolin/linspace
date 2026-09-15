@@ -55,36 +55,56 @@ class LifecycleTests(unittest.TestCase):
         official = self.file('.codex/packages/standalone/releases/old/bin/codex')
         (official.parents[3] / 'current').symlink_to(official.parents[1])
         preserved = [self.file('.codex/sessions/2026/session.jsonl'), self.file('.codex/archived_sessions/old.jsonl'),
-                     self.file('.codex/history.jsonl'), self.file('.codex/session_index.jsonl'), self.file('.codex/state_5.sqlite')]
+                     self.file('.codex/history.jsonl'), self.file('.codex/session_index.jsonl'), self.file('.codex/state_5.sqlite'),
+                     self.file('.codex/AGENTS.md'), self.file('.codex/prompts/review.md'), self.file('.codex/skills/deploy/SKILL.md'),
+                     self.file('.codex/memories/notes.md'), self.file('.codex/rules/default.rules')]
         removed = [self.file('.codex/auth.json'), self.file('.codex/config.toml'), self.file('.codex/models-1m.json'),
-                   self.file('.codex/log/cli.log'), self.file('.codex/auth.json.backup.old'), self.file('.cache/linspace/codex/digest')]
+                   self.file('.codex/log/cli.log'), self.file('.codex/auth.json.backup.old'), self.file('.cache/linspace/codex/digest'),
+                   self.file('.cache/linspace/python-abc123/python/bin/python3')]
         profiles = [self.file('.bashrc'), self.file('.zshrc')]
         client = clients.Client('codex', self.home, system=False).discover()
         with patch.object(client, 'logout'):
             client.uninstall()
         self.assertTrue(all(path.read_text() == 'fixture' for path in preserved + profiles))
         self.assertFalse(any(path.exists() for path in removed))
+        self.assertFalse((self.home / '.cache/linspace/python-abc123').exists())
         self.assertFalse((self.home / '.local/bin/codex').is_symlink())
         self.assertFalse((self.home / '.codex/packages').exists())
         with patch.object(clients.Client, 'logout'):
             clients.Client('codex', self.home, system=False).discover().uninstall()
 
-    def test_claude_removes_native_and_legacy_keeping_only_conversations(self):
+    def test_claude_removes_native_and_legacy_keeping_conversations_and_user_content(self):
         self.fixture('claude')
         self.file('.local/share/claude/versions/1.0.0')
         self.file('.claude/local/node_modules/old')
         self.file('.claude/settings.json')
         self.file('.claude/.credentials.json')
+        self.file('.claude/plugins/marketplace/plugin.json')
+        self.file('.claude/statsig/cache')
         self.file('.claude.json')
         self.file('.claude.json.backup.old')
         self.file('.claude/projects/project/session.jsonl')
         self.file('.claude/history.jsonl')
+        for name in ('CLAUDE.md', 'commands/review.md', 'agents/helper.md', 'skills/deploy/SKILL.md', 'plans/roadmap.md', 'hooks/notify.sh', 'rules/style.md'):
+            self.file('.claude/' + name)
         client = clients.Client('claude', self.home, system=False).discover()
         with patch.object(client, 'logout'):
             client.uninstall()
-        self.assertEqual({p.name for p in (self.home / '.claude').iterdir()}, {'projects', 'history.jsonl'})
+        self.assertEqual({p.name for p in (self.home / '.claude').iterdir()},
+                         {'projects', 'history.jsonl', 'CLAUDE.md', 'commands', 'agents', 'skills', 'plans', 'hooks', 'rules'})
         self.assertFalse((self.home / '.local/share/claude').exists())
         self.assertFalse(list(self.home.glob('.claude.json*')))
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS resolves /etc, /var and /tmp through /private')
+    def test_macos_private_aliases_are_not_treated_as_symlink_escapes(self):
+        # Mihomo uninstall lists /etc/mihomo; the alias table must accept every /private mount point.
+        for value in ('/etc/mihomo', '/var/lib/mihomo', '/var/log/mihomo', '/tmp/linspace-test'):
+            with self.subTest(value=value):
+                self.assertEqual(common.dedicated(value), Path(value))
+        for value in ('/etc', '/var', '/tmp'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                common.dedicated(value)
+        mihomo.Mihomo().paths  # constructing the uninstaller must not raise on this platform
 
     def test_preview_preserves_every_file_and_does_not_logout(self):
         self.fixture('codex')

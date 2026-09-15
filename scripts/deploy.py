@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Install a built linspace release on one Debian/Ubuntu host."""
+import sys
+# A verified release must not gain generated Python cache files when executed.
+sys.dont_write_bytecode = True
 from linspace_console import linspace_log
 import argparse
 import datetime
@@ -15,9 +18,6 @@ import secrets
 import shlex
 import shutil
 import subprocess
-import sys
-# A verified release must not gain generated Python cache files when executed.
-sys.dont_write_bytecode = True
 import tempfile
 import time
 from contextlib import contextmanager
@@ -33,7 +33,15 @@ CURRENT = Path('/srv/linspace/current')
 STATE = Path('/var/lib/linspace/state.json')
 LOCK = Path('/var/lib/linspace/deploy.lock')
 IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
+# When linspace owns the whole Caddyfile it also sets server-wide request deadlines,
+# so a trickled upload cannot hold connections open. Other sites keep their own file.
+MARKER = '# Managed by linspace. Edit sites-enabled/linspace.caddy through the deployer.'
+GLOBAL_OPTIONS = '{\n    servers {\n        timeouts {\n            read_header 10s\n            read_body 60s\n        }\n    }\n}\n'
 MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stashd/stashd.py'), Path('/etc/systemd/system/stashd.service'), Path('/etc/systemd/system/stashd.socket'), SIGNERS]
+
+
+def owned_main():
+    return MARKER + '\n' + GLOBAL_OPTIONS + IMPORT + '\n'
 
 
 @contextmanager
@@ -122,6 +130,9 @@ def checked_release(release):
     for path in release.rglob('*'):
         if path.is_symlink():
             raise ValueError(f'Release contains symlink: {path}')
+        # Interpreter caches from an earlier tool run are not release content.
+        if '__pycache__' in path.parts:
+            continue
         if path.is_file() and path != manifest:
             actual.add(path.relative_to(release).as_posix())
     if actual != expected:
@@ -133,8 +144,10 @@ def checked_release(release):
 
 
 def merged_main(text, domain, fresh=False, adopt=False):
-    if fresh or not text.strip():
-        return IMPORT + '\n'
+    stripped = text.strip()
+    # Files linspace wrote itself (marker, or the earlier import-only form) are upgraded in place.
+    if fresh or not stripped or stripped == IMPORT or stripped.startswith(MARKER):
+        return owned_main()
     depth = 0
     for line in text.splitlines():
         parts = shlex.split(line, comments=True)
@@ -145,7 +158,6 @@ def merged_main(text, domain, fresh=False, adopt=False):
         depth += parts.count('{') - parts.count('}')
     if re.search(r'(?m)^\s*' + re.escape(domain) + r'\s*\{', text):
         # Adopt only the project's previous single-site layout. Other sites require manual integration.
-        stripped = text.strip()
         if adopt and stripped.startswith(domain + ' {') and 'root * /srv/linspace' in stripped:
             depth = 0
             end = None
@@ -155,8 +167,9 @@ def merged_main(text, domain, fresh=False, adopt=False):
                     end = i
                     break
             if end == len(stripped) - 1:
-                return IMPORT + '\n'
+                return owned_main()
         raise ValueError('This domain already has a site block. Integrate the managed import manually, or use --adopt-existing for the previous single-site linspace layout.')
+    # Another site owns this file: add only the import. Global options belong to its operator.
     return text.rstrip() + '\n\n' + IMPORT + '\n'
 
 
@@ -268,6 +281,10 @@ def apply(release, args):
             raise ValueError(f'{SITE} already exists without managed state. Inspect that file before assigning it to this installation.')
         if STATE.exists() and json.loads(STATE.read_text()).get('format') != 1:
             raise ValueError('Existing linspace state has an unsupported format')
+        if STATE.exists():
+            previous = json.loads(STATE.read_text()).get('backup')
+            if isinstance(previous, str) and not Path(previous).is_dir():
+                linspace_log('WARN', f'The backup recorded by the previous deployment is missing: {previous}. Rollback to that state is no longer possible.')
         main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing)
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
         backup = Path('/var/backups/linspace') / stamp

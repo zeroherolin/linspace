@@ -123,6 +123,13 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         self.assertIn('original installer or package manager', result.stderr)
         self.assertEqual(self.requests(), [])
 
+    def test_unrecognized_executable_at_launcher_path_is_never_overwritten(self):
+        self.launcher.write_text('#!/bin/sh\necho not the client\n');self.launcher.chmod(0o755)
+        original=self.launcher.read_bytes();result=self.run_script()
+        self.assertNotEqual(result.returncode,0);self.assertIn('unrecognized program',result.stderr.lower())
+        self.assertFalse(self.launcher.is_symlink());self.assertEqual(self.launcher.read_bytes(),original)
+        self.assertFalse(list(self.launcher.parent.glob('.linspace.*')))
+
     def test_unlinked_official_install_is_reused_with_one_launcher(self):
         official = self.home / '.codex/packages/standalone/releases/0.154.0/bin/codex'
         official.parent.mkdir(parents=True)

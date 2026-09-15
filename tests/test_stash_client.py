@@ -35,6 +35,14 @@ class TLSHandler(writer.Handler):
             return self.reply(200, script)
         super().do_GET()
 
+    def do_PUT(self):
+        # Simulate a challenge that expired while the user was still unlocking the key.
+        if getattr(self.server, 'reject_next_write', False):
+            self.server.reject_next_write = False
+            self.rfile.read(int(self.headers.get('Content-Length', '0')))
+            return self.reply(401, 'SSH authorization failed; obtain a new challenge and retry.')
+        super().do_PUT()
+
 
 class TLSServer(writer.Server):
     address_family = socket.AF_INET
@@ -183,3 +191,19 @@ class StashClientTests(unittest.TestCase):
                 result = self.run_client('upload0', self.input)
                 self.assertNotEqual(result.returncode, 0)
         self.assertFalse(list(writer.DATA.iterdir()))
+
+    def test_expired_first_challenge_is_retried_once_with_a_fresh_one(self):
+        self.install_key()
+        self.server.reject_next_write = True
+        result = self.run_client('upload3', self.input)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('retrying once', result.stderr)
+        self.assertEqual((writer.DATA / 'download3').read_bytes(), self.input.read_bytes())
+        # Two challenges were consumed; the second signature must be the one that landed.
+        self.assertFalse(self.server.reject_next_write)
+        # A persistent 401 is reported after exactly one retry, never looped.
+        self.signers.write_text('')
+        result = self.run_client('upload3', self.input)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr.count('retrying once'), 1)
+        self.assertIn('401', result.stderr)

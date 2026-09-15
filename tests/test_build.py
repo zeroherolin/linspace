@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,14 @@ class BuildTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('No host changes made', result.stderr)
                 deploy.checked_release(release)
+            # Running the bundled tools with a plain interpreter must not invalidate the release.
+            result = subprocess.run([sys.executable, str(release / 'verify.py'), '--help'], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(list(release.rglob('__pycache__')))
+            (release / '__pycache__').mkdir()
+            (release / '__pycache__/stale.cpython-39.pyc').write_bytes(b'\0')
+            deploy.checked_release(release)
+            shutil.rmtree(release / '__pycache__')
             result = subprocess.run(['bash', str(release / 'linspace'), '--dry-run'], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('internal-test', result.stderr)

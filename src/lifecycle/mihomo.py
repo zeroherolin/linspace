@@ -146,8 +146,12 @@ class Mihomo:
             run(['supervisorctl', 'update'])
         for path in sorted(self.binaries, key=lambda p: not p.is_symlink()):
             remove(path, dry_run)
+        # The runtime directory also holds the operation lock; remove it last so a
+        # concurrent install or update stays blocked until this uninstall is complete.
+        runtime = Path('/run/linspace-mihomo')
         for path in dict.fromkeys(self.paths):
-            remove(path, dry_run)
+            if path != runtime:
+                remove(path, dry_run)
         if not dry_run and self.units and active_systemd:
             run(['systemctl', 'daemon-reload'])
         if linux:
@@ -161,6 +165,7 @@ class Mihomo:
                     run(['userdel', 'mihomo'])
                     # userdel may already remove the private group.
                     run(['groupdel', 'mihomo'], check=False)
+        remove(runtime, dry_run)
         linspace_log('OK', 'Preview complete; no changes made.' if dry_run else 'Mihomo stopped and removed, including subscriptions, configuration, logs and cache.')
         linspace_log('INFO', 'Clear proxy variables in the current terminal: unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY')
 
@@ -173,10 +178,13 @@ def main():
     if sys.platform.startswith('linux'):
         if os.geteuid() != 0:
             raise RuntimeError('Mihomo uninstall requires root on Linux.')
-        lock = Path('/run/lock/linspace-mihomo.lock')
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        if lock.is_symlink():
+        # Shared with install, sub and restart; root-owned so other accounts cannot hold it.
+        lock = Path('/run/linspace-mihomo/lock')
+        if lock.parent.is_symlink() or lock.is_symlink():
             raise ValueError('Refusing a symlinked operation lock.')
+        lock.parent.mkdir(mode=0o700, exist_ok=True)
+        if lock.parent.stat().st_uid != 0 or (lock.exists() and lock.stat().st_uid != 0):
+            raise ValueError('The operation lock directory must belong to root.')
         with lock.open('a') as handle:
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)

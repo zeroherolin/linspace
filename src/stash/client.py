@@ -13,6 +13,9 @@ from pathlib import Path
 
 MAX_SIZE = 1024 * 1024
 PROTOCOL = 'linspace-stash-v1'
+CHALLENGE_TTL = 90
+# Signing must finish well inside the challenge lifetime, including a passphrase or FIDO touch.
+SIGN_TIMEOUT = 60
 
 
 def key_identity(text):
@@ -84,6 +87,36 @@ def request(base_url, path, temporary, method='GET', data=None, headers=(), limi
     return int(result.stdout), body
 
 
+def signed_write(base_url, domain, method, path, data, identity, authorized, temporary):
+    """Fetch a challenge, sign it, verify locally and send the write. Returns the HTTP status."""
+    status, challenge_bytes = request(base_url, '/stash/challenge', temporary, limit=512)
+    challenge = challenge_bytes.decode('ascii').strip()
+    if status != 200 or not re.fullmatch(r'[0-9a-f]{64}\.[0-9]{10,12}\.[0-9a-f]{64}', challenge):
+        raise RuntimeError(f'Cannot obtain an SSH signing challenge (HTTP {status}).')
+    message = temporary / 'message'
+    message.write_text('\n'.join((PROTOCOL, base_url, method, path, hashlib.sha256(data).hexdigest(), challenge, '')), encoding='ascii')
+    sigfile = temporary / 'message.sig'
+    sigfile.unlink(missing_ok=True)
+    try:
+        signed = subprocess.run(['ssh-keygen', '-q', '-Y', 'sign', '-f', str(identity), '-n',
+                                 'linspace-stash@' + domain, str(message)], timeout=SIGN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f'SSH signing did not finish within {SIGN_TIMEOUT} seconds; unlock the key or load it into ssh-agent first.') from None
+    if signed.returncode:
+        raise RuntimeError('SSH signing failed. Unlock the selected key or load it into ssh-agent.')
+    allowed = temporary / 'allowed_signers'
+    allowed.write_text(''.join(f'stash namespaces="linspace-stash@{domain}" {key}\n' for key in sorted(authorized)))
+    verified = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(allowed), '-I', 'stash',
+                               '-n', 'linspace-stash@' + domain, '-s', str(sigfile)],
+                              input=message.read_bytes(), capture_output=True, timeout=10)
+    if verified.returncode:
+        raise ValueError('The selected SSH key is not authorized by this site.')
+    signature = base64.b64encode(sigfile.read_bytes()).decode('ascii')
+    status, _ = request(base_url, path, temporary, method, data,
+                        [('X-Linspace-Challenge', challenge), ('X-Linspace-Signature', signature)], limit=4096)
+    return status
+
+
 def main(base_url, action, argv=None):
     parser = argparse.ArgumentParser(description='Write public Stash text using an authorized SSH key.')
     if action.startswith('upload'):
@@ -121,29 +154,14 @@ def main(base_url, action, argv=None):
             if len(authorized) > 64 or '' in authorized:
                 raise ValueError('Invalid authorized-key list from the site.')
             identity = choose_identity(authorized, temporary, args.identity)
-            status, challenge_bytes = request(base_url, '/stash/challenge', temporary, limit=512)
-            challenge = challenge_bytes.decode('ascii').strip()
-            if status != 200 or not re.fullmatch(r'[0-9a-f]{64}\.[0-9]{10,12}\.[0-9a-f]{64}', challenge):
-                raise RuntimeError(f'Cannot obtain an SSH signing challenge (HTTP {status}).')
-            message = temporary / 'message'
-            message.write_text('\n'.join((PROTOCOL, base_url, method, path, hashlib.sha256(data).hexdigest(), challenge, '')), encoding='ascii')
-            signed = subprocess.run(['ssh-keygen', '-q', '-Y', 'sign', '-f', str(identity), '-n',
-                                     'linspace-stash@' + domain, str(message)], timeout=120)
-            if signed.returncode:
-                raise RuntimeError('SSH signing failed. Unlock the selected key or load it into ssh-agent.')
-            sigfile = temporary / 'message.sig'
-            allowed = temporary / 'allowed_signers'
-            allowed.write_text(''.join(f'stash namespaces="linspace-stash@{domain}" {key}\n' for key in sorted(authorized)))
-            verified = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(allowed), '-I', 'stash',
-                                       '-n', 'linspace-stash@' + domain, '-s', str(sigfile)],
-                                      input=message.read_bytes(), capture_output=True, timeout=10)
-            if verified.returncode:
-                raise ValueError('The selected SSH key is not authorized by this site.')
-            signature = base64.b64encode(sigfile.read_bytes()).decode('ascii')
-            status, _ = request(base_url, path, temporary, method, data,
-                                [('X-Linspace-Challenge', challenge), ('X-Linspace-Signature', signature)], limit=4096)
+            status = signed_write(base_url, domain, method, path, data, identity, authorized, temporary)
+            if status == 401:
+                # A slow passphrase or FIDO touch can outlive the first challenge; the key is now unlocked.
+                linspace_log('WARN', 'The site rejected the signature (HTTP 401); retrying once with a fresh challenge.')
+                status = signed_write(base_url, domain, method, path, data, identity, authorized, temporary)
             if status != 204:
                 detail = {401: 'signature rejected or challenge expired; rerun with an authorized key',
+                          408: 'upload timed out; check the connection and retry',
                           429: 'server busy; retry shortly', 413: 'file exceeds 1 MiB',
                           415: 'file is not valid UTF-8 text', 503: 'authentication service unavailable'}.get(status, 'unexpected response')
                 raise RuntimeError(f'Stash write failed (HTTP {status}): {detail}.')

@@ -69,7 +69,7 @@ The preset compacts at 900,000 tokens, uses `xhigh` reasoning, an OpenAI-compati
 | `/var/lib/linspace/state.json` | Deployment metadata |
 | `/var/backups/linspace/` | Configuration, authentication, code, units and release pointer |
 
-Caddy serves only allowlisted paths from `/srv/linspace/current` and channel data from `/var/lib/stashd`. The checkout, backups and service code are outside public roots. The dedicated `stash` account verifies writes through the Unix socket and has no TCP listener.
+Caddy serves only allowlisted paths from `/srv/linspace/current` and channel data from `/var/lib/stashd`. The checkout, backups and service code are outside public roots. The dedicated `stash` account verifies writes through the Unix socket and has no TCP listener. When linspace owns `/etc/caddy/Caddyfile` (a fresh installation or the earlier import-only layout), the file starts with a marker comment and global `servers { timeouts { read_header 10s; read_body 60s } }`; in a shared Caddyfile only the import line is added and the operator keeps control of global options.
 
 Deployment takes a lock, copies the release into an immutable directory, snapshots managed files, activates them and switches the symlink. Rollback restores the snapshot and the previous pointer but not channel contents. Uploads replace files atomically; clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry.
 
@@ -100,9 +100,11 @@ The build emits a root-owned `allowed_signers` file for up to 64 keys, restricte
 | Bound | Limit |
 | --- | --- |
 | Challenge lifetime | 90 seconds |
+| Client signing step | 60 seconds; one automatic retry with a fresh challenge after 401 |
 | Used challenges | 8,192; expired entries are removed |
 | Concurrent verifications | 4 |
 | Verification subprocess | 5 seconds |
+| Request body | 60 seconds in total, regardless of transfer speed |
 | Active connections | 32 |
 
-Invalid, expired or replayed authorization returns 401. Exhausted capacity returns 429; transient verification failures return 503. Legacy Basic authentication is rejected; the SSH writer uses `/run/stashd/ssh.sock`, distinct from the legacy socket, and deployment pauses writes during activation.
+Invalid, expired or replayed authorization returns 401. A body that does not arrive within its deadline returns 408. Exhausted verification capacity returns 429; a full connection table answers 503 with `Retry-After` instead of dropping the connection; transient verification failures return 503. Every response closes its connection, and the Caddy fragment disables upstream keep-alive, so a write is never retried over a stale connection. Legacy Basic authentication is rejected; the SSH writer uses `/run/stashd/ssh.sock`, distinct from the legacy socket, and deployment pauses writes during activation.

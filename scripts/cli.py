@@ -24,7 +24,7 @@ def configure(args):
     current = json.loads((ROOT / 'config/site.example.json').read_text())
     if args.config.exists():
         current.update(json.loads(args.config.read_text()))
-    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (empty to disable key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
+    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (Enter keeps the current value; - disables key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
     for key, prompt in questions:
         supplied = getattr(args, key, None)
         if supplied is not None:

@@ -12,15 +12,15 @@ Verify the archive against a trusted checksum, extract it into a new directory, 
 sha256sum --check SHA256SUMS
 bash linspace --dry-run
 sudo bash linspace
-python3 verify.py
+python3 -B verify.py
 ```
 
-Omit `sudo` as root. Deployment backs up managed state and preserves channel data. Stash writes use the authorized SSH keys in the bundle; upgrading removes any legacy token after taking a rollback backup. The client uninstall routes are for client machines and do not remove the server site.
+Omit `sudo` as root. Deployment backs up managed state and preserves channel data. Stash writes use the authorized SSH keys in the bundle; upgrading removes any legacy token after taking a rollback backup. The client uninstall routes are for client machines and do not remove the server site. The bundled tools write no interpreter caches, and the release check ignores a stray `__pycache__` directory.
 
 ## Diagnose and restore
 
 ```sh
-python3 verify.py --local
+python3 -B verify.py --local
 sudo bash linspace --rollback /var/backups/linspace/BACKUP_NAME
 ```
 

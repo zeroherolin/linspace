@@ -38,10 +38,10 @@ Run as root on the client that needs a proxy.
 
 ```sh
 curl -fsSL https://your-domain.cn/mihomo/install | bash
-curl -fsSL https://your-domain.cn/mihomo/sub | bash -s -- 'https://subscription.example/your-path'
+curl -fsSL https://your-domain.cn/mihomo/sub | bash
 ```
 
-Install fetches the pinned Mihomo version, GeoIP and Python when needed; nothing starts until a subscription is imported. The subscription may also be a local file path. It must be a Clash/Mihomo YAML with a nonempty `proxies` array; provider-only subscriptions and nodes that disable TLS verification are rejected. Import selects the first working node and starts the proxy; a failed import keeps the previous state. Keep subscriptions private.
+Install fetches the pinned Mihomo version, GeoIP and Python when needed; nothing starts until a subscription is imported. The import script asks for the subscription address on the terminal without echoing it, so the address stays out of shell history and the process list; for scripts, pass it as an argument: `bash -s -- 'https://subscription.example/your-path'`. The subscription may also be a local file path. It must be a Clash/Mihomo YAML with a nonempty `proxies` array; provider-only subscriptions and nodes that disable TLS verification are rejected. Import selects the first working node and starts the proxy; a failed import keeps the previous state. Keep subscriptions private.
 
 Use the proxy in the terminal running your client:
 
@@ -51,11 +51,13 @@ export https_proxy=http://127.0.0.1:7890
 curl -fsSI --proxy http://127.0.0.1:7890 --noproxy '' https://www.google.com
 ```
 
-The listener is local. Rules send China IPs directly and other traffic through the selected node. Restart after a reboot or process exit; there is no autostart or watchdog:
+The listener is local. Rules send China IPs directly and other traffic through the selected node. Restart after a reboot or process exit, or when the selected node stops working; there is no autostart or watchdog:
 
 ```sh
 curl -fsSL https://your-domain.cn/mihomo/restart | bash
 ```
+
+Restart starts the process again and checks the selected node. While that node passes the HTTPS check the selection is kept; otherwise the imported subscription is searched the way import does, in subscription order, and the first node that passes is selected. If no node passes, the process keeps running with its previous selection and the command fails; import a new subscription or retry later. Nothing is downloaded and the subscription files are not changed.
 
 Diagnose with the process status and log:
 
@@ -109,7 +111,7 @@ Save the provider token:
 curl -fsSL https://your-domain.cn/codex/auth | bash
 ```
 
-The script asks for `base_url` visibly (Enter keeps the current value) and then reads the token hidden. A nonempty URL replaces `base_url` for the provider selected in `config.toml`, which must already be downloaded. For scripts, pass both values:
+The script asks for `base_url` visibly (Enter keeps the current value) and then reads the token hidden. A nonempty URL replaces `base_url` for the provider selected in `config.toml`, which must already be downloaded. For unattended use, pass both values; note that command-line arguments are visible in shell history and the process list, so prefer the prompts on shared machines:
 
 ```sh
 curl -fsSL https://your-domain.cn/codex/auth | bash -s -- -t 'YOUR_CODEX_TOKEN' -u 'https://relay.example/v1'
@@ -137,7 +139,8 @@ The client tries `ssh-agent`, then `~/.ssh/id_*` pairs, then other `.pub` files 
 | --- | --- |
 | No authorized identity | Load the key into the agent or ask the operator to authorize it |
 | Writes disabled | The site has no authorized keys |
-| 401 | Signature invalid, expired or already used; download the current script and retry |
+| 401 | Signature invalid, expired or already used; the client retries once with a fresh challenge, then download the current script and retry |
+| 408 | The upload did not finish within 60 seconds; check the connection and retry |
 | 411 / 413 / 415 | Missing length, over 1 MiB, or not UTF-8 text without NUL bytes; use the current script |
 | 429 / 503 | Retry later; the operator should check service logs |
 
@@ -164,7 +167,7 @@ curl -fsSL https://your-domain.cn/mihomo/uninstall | bash
 
 Run the Mihomo command as root. Add `-s -- --dry-run` after `bash` to preview, or `-s -- --bin /absolute/path` to include an executable outside PATH.
 
-Each command stops the program and removes recognized installations, settings, credentials and caches without backups. **Claude Code keeps `~/.claude/projects/` and `history.jsonl`; Codex keeps `sessions/`, `archived_sessions/`, `history.jsonl`, `session_index.jsonl` and session state databases.** Mihomo retains nothing.
+Each command stops the program and removes recognized installations, settings, credentials, caches and installed plugins without backups. **Conversation history and files you wrote yourself are kept. Claude Code keeps `~/.claude/projects/`, `history.jsonl`, `CLAUDE.md`, `commands/`, `agents/`, `skills/`, `plans/`, `hooks/` and `rules/`; Codex keeps `sessions/`, `archived_sessions/`, `history.jsonl`, `session_index.jsonl`, session state databases, `AGENTS.md`, `prompts/`, `skills/`, `memories/`, `rules/` and `hooks/`.** `~/.claude.json` (per-project trust and MCP settings) is removed. Mihomo retains nothing.
 
 Recognized sources: linspace, official native or standalone packages, global npm/pnpm/Yarn/Bun, Homebrew, Linux packages and identified binaries in PATH; for Mihomo also systemd, Supervisor and the official manual layout. Package-managed installations are removed with their package manager; system packages need administrator access. Unknown layouts and shared launchers or services stop with an actionable error. Other accounts, IDE extensions, desktop bundles and shared runtimes are never removed. Startup files are never edited; exported tokens must be unset in the parent shell. After removing Mihomo, run `unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY`.
 

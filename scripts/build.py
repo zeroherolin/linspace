@@ -90,7 +90,7 @@ def build(config_path, output=None, internal=False):
         hashes = {digest for name, entry in resources.items() if name.startswith(client + '-')
                   for digest in [entry['sha256'], *(part['sha256'] for part in entry['parts'])]}
         uninstall_values = {**values, 'CLIENT': client, 'CLIENT_NAME': title, 'CLIENT_CACHE_HASHES': ' '.join(sorted(hashes))}
-        uninstall_values['UNINSTALL_RETENTION'] = 'No proxy data is retained.' if client == 'mihomo' else 'Keeps only conversation history.'
+        uninstall_values['UNINSTALL_RETENTION'] = 'No proxy data is retained.' if client == 'mihomo' else 'Keeps conversation history and your own files (see the user guide).'
         uninstall_values['UNINSTALL_BODY'] = render('src/lifecycle/mihomo.py' if client == 'mihomo' else 'src/lifecycle/clients.py', uninstall_values)
         write(release, f'site/{client}/uninstall', render('src/lifecycle/uninstall.sh.in', uninstall_values))
     for name, source in {

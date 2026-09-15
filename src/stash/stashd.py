@@ -23,11 +23,14 @@ from pathlib import Path
 import re
 
 MAX_SIZE = 1024 * 1024
-CHANNEL = re.compile(r'^/stash/download([0-7])$')
+CHANNEL = re.compile(r'/stash/download([0-7])')
 CLEAR = '/stash/clear'
 DATA = Path('/var/lib/stashd')
 PROTOCOL = 'linspace-stash-v1'
 CHALLENGE_TTL = 90
+# One deadline for the whole body: a trickle of bytes cannot hold a connection open.
+BODY_TIMEOUT = 60
+MAX_CONNECTIONS = 32
 
 
 def signing_message(domain, method, path, data, challenge):
@@ -111,20 +114,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         print(format % args, file=sys.stderr, flush=True)
 
-    def reply(self, code, text='', close=False):
+    def reply(self, code, text=''):
+        # Every client run is one request. Closing after each response keeps the
+        # proxy from reusing a connection that this side is about to idle out.
         body = (text + '\n').encode() if text else b''
-        if close:
-            self.close_connection = True
+        self.close_connection = True
         self.send_response(code)
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         if code == 401:
             self.send_header('WWW-Authenticate', 'SSH-Signature realm="linspace-stash"')
+        if code in (429, 503):
+            self.send_header('Retry-After', '5')
         if code != 204:
             self.send_header('Content-Type', 'text/plain; charset=utf-8')
             self.send_header('Content-Length', str(len(body)))
-        if close:
-            self.send_header('Connection', 'close')
+        self.send_header('Connection', 'close')
         self.end_headers()
         if body and self.command != 'HEAD':
             self.wfile.write(body)
@@ -132,6 +137,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def request_path(self):
         # Exact origin-form targets only: queries and encoded aliases are not signed routes.
         return self.path
+
+    def read_body(self, length):
+        """Read exactly length bytes within BODY_TIMEOUT, or return None."""
+        deadline = time.monotonic() + BODY_TIMEOUT
+        # One raw recv per iteration keeps the deadline check between every chunk.
+        read = getattr(self.rfile, 'read1', self.rfile.read)
+        chunks, remaining = [], length
+        try:
+            while remaining:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(min(left, self.timeout))
+                chunk = read(min(remaining, 65536))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        except OSError:
+            return None
+        finally:
+            self.connection.settimeout(self.timeout)
+        return b''.join(chunks)
 
     def declared_length(self):
         """Return the Content-Length, or None when the body length cannot be trusted."""
@@ -149,28 +177,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def authenticate(self, data):
         headers = ('X-Linspace-Challenge', 'X-Linspace-Signature')
         if any(len(self.headers.get_all(name, [])) != 1 for name in headers):
-            self.reply(401, 'An authorized SSH signature is required.', close=True)
+            self.reply(401, 'An authorized SSH signature is required.')
             return False
         code = self.server.auth.authorize(self.command, self.path, data, *(self.headers[name] for name in headers))
         if code != 204:
-            self.reply(code, 'SSH authorization failed; obtain a new challenge and retry.' if code == 401 else 'Authentication is busy or unavailable.', close=True)
+            self.reply(code, 'SSH authorization failed; obtain a new challenge and retry.' if code == 401 else 'Authentication is busy or unavailable.')
             return False
         return True
 
     def do_PUT(self):
-        match = CHANNEL.match(self.request_path())
+        match = CHANNEL.fullmatch(self.request_path())
         if not match:
-            return self.reply(404, 'Unknown channel.', close=True)
+            return self.reply(404, 'Unknown channel.')
         length = self.declared_length()
         if length is None:
-            return self.reply(411, 'A valid Content-Length is required.', close=True)
+            return self.reply(411, 'A valid Content-Length is required.')
         if length > MAX_SIZE:
-            return self.reply(413, 'The body exceeds 1 MiB.', close=True)
+            return self.reply(413, 'The body exceeds 1 MiB.')
         if not self.headers.get('X-Linspace-Signature'):
-            return self.reply(401, 'An authorized SSH signature is required.', close=True)
-        data = self.rfile.read(length)
+            return self.reply(401, 'An authorized SSH signature is required.')
+        data = self.read_body(length)
+        if data is None:
+            return self.reply(408, 'The body was not received in time.')
         if len(data) != length:
-            return self.reply(400, 'The body is shorter than Content-Length.', close=True)
+            return self.reply(400, 'The body is shorter than Content-Length.')
         if b'\0' in data:
             return self.reply(415, 'Only text is accepted; the body contains NUL bytes.')
         try:
@@ -194,9 +224,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.request_path() != CLEAR:
-            return self.reply(404, 'Not found.', close=True)
+            return self.reply(404, 'Not found.')
         if self.declared_length() != 0:
-            return self.reply(400, 'No body is expected.', close=True)
+            return self.reply(400, 'No body is expected.')
         if not self.authenticate(b''):
             return
         for index in range(8):
@@ -205,16 +235,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/stash/challenge':
-            return self.reply(200, self.server.auth.challenge(), close=True)
-        self.reply(405, 'Only PUT and POST are served here.', close=True)
+            return self.reply(200, self.server.auth.challenge())
+        self.reply(405, 'Only PUT and POST are served here.')
 
     def do_HEAD(self):
         if self.path == '/stash/challenge':
-            return self.reply(200, '', close=True)
-        self.reply(405, close=True)
+            return self.reply(200, '')
+        self.reply(405)
 
     def do_unsupported(self):
-        self.reply(405, close=True)
+        self.reply(405)
 
     do_DELETE = do_PATCH = do_OPTIONS = do_unsupported
 
@@ -224,11 +254,18 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
     def __init__(self, *args, **kwargs):
-        self.connections = threading.BoundedSemaphore(32)
+        self.connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
         super().__init__(*args, **kwargs)
 
     def process_request(self, request, address):
         if not self.connections.acquire(blocking=False):
+            # Answer instead of dropping, so the proxy relays a retryable status.
+            try:
+                request.settimeout(2)
+                request.sendall(b'HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\n'
+                                b'Cache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            except OSError:
+                pass
             self.shutdown_request(request)
             return
         try:

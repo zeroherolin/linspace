@@ -21,7 +21,7 @@ Edit `src/`, `scripts/`, `config/` and `docs/`; never edit generated `dist/`. Ke
 - Keep credentials, machine-specific paths, project trust and UI history out of public presets. Use relative paths for companion client files.
 - Write English guides with short, standalone commands. Keep loops, functions and recovery logic in tools, not in copy-and-paste setup blocks.
 - `docs/help.md` uses only the Markdown subset rendered by `scripts/helppage.py`: headings, paragraphs, lists, inline and fenced code.
-- Keep lifecycle behavior in `src/lifecycle/`. Reuse existing installations; never remove desktop bundles, shared runtimes or unrelated processes. Uninstall keeps conversation history and removes credentials. Successful client operations retain no backups.
+- Keep lifecycle behavior in `src/lifecycle/`. Reuse existing installations; never remove desktop bundles, shared runtimes or unrelated processes. Uninstall keeps conversation history and user-authored files (`clients.Client.RETAINED`) and removes credentials. Successful client operations retain no backups.
 - Keep private deployment details and session history outside the repository.
 
 Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When changing configuration fields, cover both new and existing profiles.

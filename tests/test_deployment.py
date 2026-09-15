@@ -169,13 +169,25 @@ class DeploymentTests(unittest.TestCase):
             self.assertLess(commands.index(['systemctl', 'reload', 'caddy']), commands.index(['systemctl', 'start', 'stashd.socket']))
 
     def test_fresh_config(self):
-        self.assertEqual(deploy.merged_main(':80 {\n file_server\n}', 'mine.cn', fresh=True), deploy.IMPORT + '\n')
+        owned = deploy.merged_main(':80 {\n file_server\n}', 'mine.cn', fresh=True)
+        self.assertEqual(owned, deploy.owned_main())
+        self.assertTrue(owned.startswith(deploy.MARKER + '\n{\n'))
+        self.assertIn('read_body 60s', owned)
+        self.assertTrue(owned.endswith(deploy.IMPORT + '\n'))
+        # Global options must precede every site block or import in a Caddyfile.
+        self.assertLess(owned.index('servers {'), owned.index(deploy.IMPORT))
+
+    def test_previously_owned_import_only_file_gains_global_options(self):
+        for text in (deploy.IMPORT + '\n', '\n' + deploy.IMPORT + '\n\n', deploy.owned_main()):
+            with self.subTest(text=text):
+                self.assertEqual(deploy.merged_main(text, 'mine.cn'), deploy.owned_main())
 
     def test_other_sites_are_preserved_and_import_is_idempotent(self):
         before = 'other.cn {\n respond "other site"\n}\n'
         after = deploy.merged_main(before, 'mine.cn')
         self.assertTrue(after.startswith(before))
         self.assertEqual(after.count(deploy.IMPORT), 1)
+        self.assertNotIn('servers {', after)
         self.assertEqual(deploy.merged_main(after, 'mine.cn'), after)
 
     def test_existing_top_level_import_globs_are_reused(self):
@@ -187,7 +199,7 @@ class DeploymentTests(unittest.TestCase):
         before = 'mine.cn {\n root * /srv/linspace\n handle {\n file_server\n }\n}\n'
         with self.assertRaises(ValueError):
             deploy.merged_main(before, 'mine.cn')
-        self.assertEqual(deploy.merged_main(before, 'mine.cn', adopt=True), deploy.IMPORT + '\n')
+        self.assertEqual(deploy.merged_main(before, 'mine.cn', adopt=True), deploy.owned_main())
         with self.assertRaises(ValueError):
             deploy.merged_main(before + 'other.cn {\n respond "keep"\n}\n', 'mine.cn', adopt=True)
 

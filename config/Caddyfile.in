@@ -1,18 +1,16 @@
 @@DOMAIN@@ {
     root * /srv/linspace/current
     header X-Content-Type-Options "nosniff"
+    header Strict-Transport-Security "max-age=31536000"
+    header Referrer-Policy "no-referrer"
     import /etc/caddy/linspace.d/stash.caddy
 
-    @home path /
-    handle @home {
+    @html path / /help
+    handle @html {
         header Content-Type "text/html; charset=utf-8"
         header Cache-Control "no-store"
-        file_server
-    }
-    @help path /help
-    handle @help {
-        header Content-Type "text/html; charset=utf-8"
-        header Cache-Control "no-store"
+        header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        header X-Frame-Options "DENY"
         file_server
     }
     @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/uninstall /mihomo/sub /mihomo/restart /claude/install /claude/uninstall /claude/config /codex/install /codex/uninstall /codex/config /codex/models_1m /codex/auth

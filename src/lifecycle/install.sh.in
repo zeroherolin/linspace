@@ -229,6 +229,9 @@ BWRAP_LICENSE
     [[ ! -L $release && -x $release/$executable ]] || fail 'The existing version directory is invalid.'
     link=$bin/$CLIENT
     [[ ! -d $link && ( ! -e $link || -f $link || -L $link ) ]] || fail 'The command path is not a file.'
+    # An executable that reached this point was not recognized as this client above.
+    # Only a non-executable leftover may be replaced without asking.
+    [[ ! -f $link || -L $link || ! -x $link ]] || fail "An unrecognized program occupies $link. Move it aside, then rerun this command."
     if [[ ! -L $link || $(readlink "$link") != "$release/$executable" ]]; then
         ln -s "$release/$executable" "$WORK/launcher"
         # Stage the symlink on the target filesystem before an atomic rename.

@@ -41,9 +41,8 @@ main() (
     done
 @@include:src/common/download.sh.in@@
     linspace_python 9 || fail 'Could not prepare Python.'
-    [[ -d /run/lock ]] || install -d -m 755 /run/lock
-    exec 9>/run/lock/linspace-mihomo.lock
-    flock -n 9 || fail 'Another installation or update is running.'
+@@include:src/mihomo/lock.sh@@
+    linspace_mihomo_lock || fail 'Another installation or update is running.'
     if ! id mihomo >/dev/null 2>&1; then
         useradd --system --user-group --home-dir /var/lib/mihomo --shell /usr/sbin/nologin mihomo
     fi

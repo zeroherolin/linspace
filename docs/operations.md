@@ -51,6 +51,19 @@ sudo ./linspace deploy --adopt-existing
 
 Complex layouts need a manual merge. A fresh Caddy installation's welcome site is replaced.
 
+## Caddy updates
+
+When deployment installs Caddy itself, it installs the pinned `.deb` from `config/downloads.json` and configures no package repository, so `apt upgrade` will not update it. Either add the official repository once so security fixes arrive with the system, or redeploy after the project raises the pinned version:
+
+```sh
+sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt-get update && sudo apt-get install -y caddy
+```
+
+The deployer accepts any Caddy 2.10 or later; after a package upgrade run `./linspace verify`.
+
 ## Diagnostics
 
 ```sh
@@ -78,7 +91,7 @@ Rollback restores managed files, authentication and the release pointer, but kee
 
 ## Backups and cleanup
 
-Backups under `/var/backups/linspace/` and releases under `/srv/linspace/releases/` are retained until deliberately removed. Keep the active release, releases referenced by retained backups, and Caddy certificate storage.
+Backups under `/var/backups/linspace/` and releases under `/srv/linspace/releases/` are retained until deliberately removed. Keep the active release, releases referenced by retained backups, and Caddy certificate storage. `/var/lib/linspace/state.json` names the backup taken by the last deployment; if that directory has been removed, the next deployment warns that rollback to the previous state is no longer possible.
 
 Channel files are `/var/lib/stashd/download0` through `download7`. A removed file returns 404; an uploaded empty file returns 200.
 

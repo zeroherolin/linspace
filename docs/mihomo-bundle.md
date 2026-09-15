@@ -26,4 +26,4 @@ bash mihomo/restart
 bash mihomo/uninstall
 ```
 
-Restart after a reboot or process exit; there is no autostart. Uninstall stops and removes Mihomo, services, settings and subscriptions; add `--dry-run` to preview and clear proxy variables afterward. Keep private subscriptions outside the bundle.
+Restart after a reboot or process exit, or when the selected node stops working; there is no autostart. It restarts the process, keeps the selected node while it passes the HTTPS check, and otherwise selects the first working node of the imported subscription in subscription order, without downloading anything. Uninstall stops and removes Mihomo, services, settings and subscriptions; add `--dry-run` to preview and clear proxy variables afterward. Keep private subscriptions outside the bundle.

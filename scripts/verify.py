@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Check HTTPS routes without writing or clearing stash channels."""
+import sys
+# A verified release must not gain generated Python cache files when executed.
+sys.dont_write_bytecode = True
 from linspace_console import linspace_log
 import argparse
 import json

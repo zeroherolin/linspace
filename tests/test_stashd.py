@@ -181,6 +181,13 @@ class StashProtocolTests(unittest.TestCase):
 
     def test_exact_signed_routes_and_missing_content_length(self):
         self.assertEqual(self.request('PUT', '/stash/download0?extra=1', b'x')[0], 404)
+        for path in ('/stash/download%30', '/STASH/download0', '/stash/download0/', 'https://stash.example.test/stash/download0'):
+            with self.subTest(path=path):
+                self.assertEqual(self.request('PUT', path, b'x')[0], 404)
+        # The standard library folds a leading '//' into '/'; the signature over the sent path then no longer matches.
+        self.assertEqual(self.request('PUT', '//stash/download0', b'x')[0], 401)
+        self.assertFalse((stashd.DATA / 'download0').exists())
+        self.assertIsNone(stashd.CHANNEL.fullmatch('/stash/download0\n'))
         connection = UnixConnection(self.path)
         try:
             connection.putrequest('PUT', '/stash/download0')
@@ -190,6 +197,71 @@ class StashProtocolTests(unittest.TestCase):
             response.read()
         finally:
             connection.close()
+
+    def raw_request(self, text, wait=0):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(self.path)
+        sock.sendall(text)
+        if wait:
+            time.sleep(wait)
+        return sock
+
+    def test_every_response_closes_the_connection(self):
+        for method, path, body, expected in [('PUT', '/stash/download0', b'ok', 204), ('PUT', '/stash/download0', b'\xff', 415),
+                                             ('GET', '/stash/challenge', None, 200), ('POST', '/stash/clear', b'', 204)]:
+            connection = UnixConnection(self.path)
+            try:
+                headers = self.signed_headers(method, path, body or b'') if method in ('PUT', 'POST') else {}
+                connection.request(method, path, body=body, headers=headers)
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, expected)
+                self.assertEqual(response.getheader('Connection'), 'close')
+                self.assertTrue(response.will_close)
+            finally:
+                connection.close()
+
+    def test_trickled_body_is_cut_off_at_the_body_deadline(self):
+        original = stashd.BODY_TIMEOUT
+        stashd.BODY_TIMEOUT = 1
+        try:
+            sock = self.raw_request(b'PUT /stash/download0 HTTP/1.1\r\nHost: stashd\r\nContent-Length: 10\r\n'
+                                    b'X-Linspace-Challenge: x\r\nX-Linspace-Signature: x\r\n\r\nab')
+            try:
+                started = time.monotonic()
+                response = b''
+                while b'\r\n\r\n' not in response:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                self.assertTrue(response.startswith(b'HTTP/1.1 408 '), response)
+                self.assertLess(time.monotonic() - started, 8)
+            finally:
+                sock.close()
+        finally:
+            stashd.BODY_TIMEOUT = original
+        self.assertFalse((stashd.DATA / 'download0').exists())
+
+    def test_connection_overflow_answers_503_instead_of_dropping(self):
+        # Occupy every slot from the test itself; no handler thread races the release.
+        for _ in range(stashd.MAX_CONNECTIONS):
+            self.assertTrue(self.server.connections.acquire(blocking=False))
+        try:
+            connection = UnixConnection(self.path)
+            try:
+                connection.request('GET', '/stash/challenge')
+                response = connection.getresponse()
+                self.assertEqual(response.status, 503)
+                self.assertEqual(response.getheader('Retry-After'), '5')
+                response.read()
+            finally:
+                connection.close()
+        finally:
+            for _ in range(stashd.MAX_CONNECTIONS):
+                self.server.connections.release()
+        self.assertEqual(self.request('GET', '/stash/challenge')[0], 200)
 
 
 if __name__ == '__main__':
