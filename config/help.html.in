@@ -87,9 +87,8 @@ code {
 }
 pre {
   position: relative;
-  overflow-x: auto;
+  overflow: hidden;
   margin: 0 0 1.5rem;
-  padding: 2.5rem 1.25rem 1.2rem;
   border: 1px solid var(--rule);
   border-radius: 8px;
   background: var(--pre-bg);
@@ -100,28 +99,43 @@ pre {
 pre::before {
   content: attr(data-language);
   position: absolute;
+  z-index: 1;
   top: 0.85rem;
   right: 1.25rem;
   color: var(--muted);
   font: 400 0.8rem/1 var(--sans);
   text-transform: capitalize;
 }
+/* The code element scrolls; the frame, label and line numbers stay put. The single
+   grid column is sized by the longest line, so every line spans the full scroll
+   width and its sticky gutter always has a box to stick inside. Padding on the
+   column's right is real scrollable width, so text stops short of the frame. */
 pre code {
-  display: block;
-  padding: 0;
+  display: grid;
+  grid-template-columns: max-content;
+  overflow-x: auto;
+  padding: 2.5rem 0 1.2rem;
   border-radius: 0;
   background: none;
   font-size: 0.875rem;
   line-height: 1.85;
   white-space: pre;
 }
-pre .line { display: block; }
+pre .line {
+  display: block;
+  padding-right: 2rem;
+}
+/* The gutter sticks to the scrollport and paints over text passing beneath it. */
 pre .line::before {
   content: counter(line);
   counter-increment: line;
+  position: -webkit-sticky;
+  position: sticky;
+  left: 0;
   display: inline-block;
   width: 1.75rem;
-  margin-right: 1.25rem;
+  padding: 0 1.25rem;
+  background: var(--pre-bg);
   color: var(--faint);
   font-size: 0.9em;
   text-align: right;
@@ -151,10 +165,11 @@ footer a { color: var(--muted); }
   h1 { font-size: 1.5rem; }
   h1 + p { margin-bottom: 1.75rem; }
   h2 { margin-top: 2rem; font-size: 1.15rem; }
-  pre { padding: 2.4rem 0.9rem 1rem; border-radius: 6px; }
+  pre { border-radius: 6px; }
   pre::before { right: 0.9rem; top: 0.8rem; font-size: 0.75rem; }
-  pre code { font-size: 0.8rem; line-height: 1.8; }
-  pre .line::before { width: 1.5rem; margin-right: 0.9rem; }
+  pre code { padding: 2.4rem 0 1rem; font-size: 0.8rem; line-height: 1.8; }
+  pre .line { padding-right: 1.5rem; }
+  pre .line::before { width: 1.5rem; padding: 0 0.9rem; }
 }
 </style>
 </head>
