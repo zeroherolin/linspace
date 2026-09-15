@@ -24,7 +24,7 @@ Edit `src/`, `scripts/`, `config/` and `docs/`; never edit generated `dist/`. Ke
 - Keep lifecycle behavior in `src/lifecycle/`. Reuse existing installations; never remove desktop bundles, shared runtimes or unrelated processes. Uninstall keeps conversation history and user-authored files (`clients.Client.RETAINED`) and removes credentials. Successful client operations retain no backups.
 - Keep private deployment details and session history outside the repository.
 
-Templates support `@@include:src/component/file@@`, `@@DOMAIN@@` and `@@GEO_SHA@@`. Avoid conflicting heredoc delimiters. When changing configuration fields, cover both new and existing profiles.
+Templates support `@@include:src/component/file@@`, `@@DOMAIN@@`, `@@ALIAS_BLOCK@@` (Caddyfile only) and `@@GEO_SHA@@`. Client scripts and public files embed only the canonical domain; aliases appear solely in the Caddy redirect block and `release.json`. Avoid conflicting heredoc delimiters. When changing configuration fields, cover both new and existing profiles.
 
 ## Versions and dependencies
 

@@ -57,6 +57,28 @@ class CliTests(unittest.TestCase):
             self.assertEqual(profile.read_bytes(), saved)
             self.assertFalse((root / '.site-pending.json').exists())
 
+    def test_alias_domains_are_configured_and_listed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = root / 'site.json'
+            profile.write_text(json.dumps({'domain': 'alias.example.test', 'site_name': 'Alias', 'icp_number': '', 'ssh_public_key_file': ''}))
+
+            def command(name, *args):
+                return subprocess.run([sys.executable, str(ROOT / 'scripts/cli.py'), name, '--config', str(profile), '--internal-test', *args], capture_output=True, text=True)
+
+            result = command('configure', '--non-interactive', '--alias-domains', 'WWW.alias.example.test')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(profile.read_text())['alias_domains'], ['www.alias.example.test'])
+            urls = command('urls')
+            self.assertEqual(urls.returncode, 0, urls.stderr)
+            self.assertIn('https://www.alias.example.test/  (redirects to https://alias.example.test/)', urls.stdout)
+            result = command('configure', '--non-interactive', '--alias-domains')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(profile.read_text())['alias_domains'], [])
+            result = command('configure', '--non-interactive', '--alias-domains', 'alias.example.test')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('alias_domains', result.stderr)
+
     def test_configured_ssh_filename_is_saved_and_used_in_urls(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

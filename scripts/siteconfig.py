@@ -14,7 +14,8 @@ from vendor import toml_parser
 tomllib = toml_parser()
 
 ROOT = Path(__file__).resolve().parents[1]
-FIELDS = ('domain', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'stash_public_key_files')
+FIELDS = ('domain', 'alias_domains', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'stash_public_key_files')
+MAX_ALIASES = 8
 
 
 def domain_name(value, internal=False):
@@ -36,6 +37,23 @@ def domain_name(value, internal=False):
     if reserved and not internal:
         raise ValueError('Replace the example domain with your resolved, ICP-filed domain')
     return domain
+
+
+def alias_domains(value, domain, internal=False):
+    """Extra hostnames that redirect to the canonical domain, such as the www form named in a filing."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_ALIASES or any(not isinstance(item, str) for item in value):
+        raise ValueError(f'alias_domains must be an array of up to {MAX_ALIASES} hostnames, or be omitted')
+    aliases = []
+    for item in value:
+        alias = domain_name(item, internal)
+        if alias == domain:
+            raise ValueError('alias_domains must not repeat the canonical domain')
+        if alias in aliases:
+            raise ValueError('alias_domains must not contain duplicates')
+        aliases.append(alias)
+    return aliases
 
 
 def public_key_name(value):
@@ -93,6 +111,7 @@ def load(path, internal=False, root=ROOT):
         raise ValueError('Unknown configuration fields; use config/site.example.json as the schema')
     config = dict(raw)
     config['domain'] = domain_name(raw.get('domain', ''), internal)
+    config['alias_domains'] = alias_domains(raw.get('alias_domains'), config['domain'], internal)
     config['ssh_public_key_name'] = public_key_name(raw.get('ssh_public_key_name', 'key.pub'))
     for key in ('site_name', 'icp_number'):
         value = raw.get(key, '')

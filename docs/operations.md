@@ -17,7 +17,7 @@ Resolve source edits before pulling. To change site settings:
 sudo ./linspace deploy
 ```
 
-A new domain needs DNS and filing first. Changing the published SSH filename changes its URL. Use `--config local/other.json` on every command for a separate profile; profiles with different SSH keys should reference distinct key files.
+A new domain needs DNS and filing first. Alias hostnames need their own DNS records pointing at the server; Caddy obtains a certificate for each and redirects it to the canonical domain. Changing the published SSH filename changes its URL. Use `--config local/other.json` on every command for a separate profile; profiles with different SSH keys should reference distinct key files.
 
 The public `/help` page is built from `docs/help.md`: edit it, run `./linspace check`, then deploy.
 
@@ -43,7 +43,7 @@ To rotate a key, authorize both keys, deploy and test the new key, then remove t
 
 ## Existing Caddy
 
-The deployer manages `sites-enabled/linspace.caddy` and its import in `/etc/caddy/Caddyfile`, preserving other sites and global options. An unmanaged block for the same domain is rejected. For the older single-site linspace layout, inspect the current Caddyfile and run:
+The deployer manages `sites-enabled/linspace.caddy` and its import in `/etc/caddy/Caddyfile`, preserving other sites and global options. An unmanaged block for the same domain, or for any configured alias hostname, is rejected. For the older single-site linspace layout, inspect the current Caddyfile and run:
 
 ```sh
 sudo ./linspace deploy --adopt-existing

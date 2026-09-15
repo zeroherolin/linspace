@@ -70,6 +70,15 @@ def verify(meta, local=False, quiet=False):
         status, headers = probe(domain, path, local=local, scheme=scheme)
         if status != expected or headers.get('location') != destination:
             raise RuntimeError(f'{scheme} {path}: unexpected redirect')
+    # Alias hostnames only redirect; the path and query must survive so shared links keep working.
+    for alias in meta.get('alias_domains', []):
+        for path, scheme in [('/', 'https'), ('/help', 'https'), ('/stash/download0?x=1', 'https'), ('/', 'http')]:
+            status, headers = probe(alias, path, local=local, scheme=scheme)
+            wanted = f'https://{domain}{path}' if scheme == 'https' else f'https://{alias}/'
+            if status != 308 or headers.get('location') != wanted:
+                raise RuntimeError(f'{scheme}://{alias}{path}: expected a 308 redirect to {wanted} (HTTP {status})')
+            if not quiet:
+                linspace_log('OK', f'{scheme}://{alias}{path} -> {wanted}')
     linspace_log('OK', f'HTTPS verification passed for {domain}' + (' via loopback' if local else '') + '; stash contents unchanged.')
 
 

@@ -99,6 +99,27 @@ class BuildTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 deploy.checked_release(release)
 
+    def test_alias_hostnames_redirect_and_never_serve_content(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'alias.example.test', 'alias_domains': ['www.alias.example.test', 'old.example.test'], 'site_name': 'Alias', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            release = build.build(config, root / 'dist', internal=True)
+            caddyfile = (release / 'config/Caddyfile').read_text()
+            self.assertTrue(caddyfile.startswith('www.alias.example.test, old.example.test {\n    redir https://alias.example.test{uri} 308\n}\n\nalias.example.test {\n'))
+            self.assertEqual(caddyfile.count('root * /srv/linspace/current'), 1)
+            self.assertEqual(caddyfile.count('import /etc/caddy/linspace.d/stash.caddy'), 1)
+            meta, _ = deploy.checked_release(release)
+            self.assertEqual(meta['alias_domains'], ['www.alias.example.test', 'old.example.test'])
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix not in ('.dat', '.gz') and path.name not in ('Caddyfile', 'release.json'):
+                    self.assertNotIn('www.alias.example.test', path.read_text(), path)
+            without = root / 'plain.json'
+            without.write_text(json.dumps({'domain': 'alias.example.test', 'site_name': 'Alias', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            plain = build.build(without, root / 'dist', internal=True)
+            self.assertTrue((plain / 'config/Caddyfile').read_text().startswith('alias.example.test {\n'))
+            self.assertEqual(json.loads((plain / 'release.json').read_text())['alias_domains'], [])
+
     def test_no_key_means_no_public_key_or_route(self):
         with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
             root = Path(tmp)

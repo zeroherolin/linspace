@@ -37,6 +37,20 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 siteconfig.domain_name(value)
 
+    def test_alias_domains_are_normalized_and_bounded(self):
+        self.assertEqual(siteconfig.alias_domains(None, 'my-domain.cn'), [])
+        self.assertEqual(siteconfig.alias_domains([], 'my-domain.cn'), [])
+        self.assertEqual(siteconfig.alias_domains(['WWW.My-Domain.cn', 'tools.my-domain.cn'], 'my-domain.cn'), ['www.my-domain.cn', 'tools.my-domain.cn'])
+        for value in ('www.my-domain.cn', [1], ['my-domain.cn'], ['www.my-domain.cn', 'www.my-domain.cn'], ['https://www.my-domain.cn'], ['a.cn{'], [f'a{i}.cn' for i in range(9)]):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                siteconfig.alias_domains(value, 'my-domain.cn')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, _, _, _ = siteconfig.load(self.config(root), root=root)
+            self.assertEqual(config['alias_domains'], [])
+            config, _, _, _ = siteconfig.load(self.config(root, alias_domains=['www.my-domain.cn']), root=root)
+            self.assertEqual(config['alias_domains'], ['www.my-domain.cn'])
+
     def test_reserved_domains_need_internal_flag(self):
         self.assertEqual(siteconfig.domain_name('docs.example.test', True), 'docs.example.test')
         with self.assertRaises(ValueError):

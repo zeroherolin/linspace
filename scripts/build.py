@@ -47,6 +47,17 @@ def write(root, relative, data):
     path.chmod(0o644)
 
 
+def alias_block(config):
+    """Caddy site block that sends every alias hostname to the canonical domain.
+
+    Aliases exist for filings and typed URLs, not for serving content: a single
+    permanent redirect keeps one origin for scripts, signatures and caches."""
+    aliases = config.get('alias_domains') or []
+    if not aliases:
+        return ''
+    return ', '.join(aliases) + ' {\n    redir https://' + config['domain'] + '{uri} 308\n}\n\n'
+
+
 def checksums(root):
     entries = {p.relative_to(root).as_posix(): digest(p.read_bytes()) for p in sorted(root.rglob('*')) if p.is_file() and p.name != 'SHA256SUMS'}
     write(root, 'SHA256SUMS', ''.join(f'{sha}  {name}\n' for name, sha in entries.items()))
@@ -82,7 +93,7 @@ def build(config_path, output=None, internal=False):
     release = output / 'linspace-site'
     release.mkdir(parents=True)
     key_name = config['ssh_public_key_name']
-    values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', **downloads.values()}
+    values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', 'ALIAS_BLOCK': alias_block(config), **downloads.values()}
     for client, title in [('claude', 'Claude Code'), ('codex', 'Codex')]:
         write(release, f'site/{client}/install', render('src/lifecycle/install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title}))
     resources = json.loads((ROOT / 'config/downloads.json').read_text())['assets']
@@ -119,7 +130,7 @@ def build(config_path, output=None, internal=False):
     write(release, 'README.md', (ROOT / 'docs/site-bundle.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
-    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
+    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'alias_domains': config['alias_domains'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')

@@ -5,7 +5,7 @@
 | Location | Responsibility |
 | --- | --- |
 | `config/` and ignored `local/` | Templates, public presets, download manifest and operator inputs |
-| `scripts/siteconfig.py` | Domain, filing, public-key and client-setting validation |
+| `scripts/siteconfig.py` | Domain, alias, filing, public-key and client-setting validation |
 | `scripts/codex_catalog.py` | Catalog integrity, consistency and refresh |
 | `scripts/helppage.py` | Render `docs/help.md` into the public `/help` page |
 | `scripts/build.py` | Render files and create checksummed bundles |
@@ -21,6 +21,8 @@
 Claude JSON is serialized during build; Codex TOML preserves formatting. `docs/help.md` supports headings, paragraphs, lists, inline and fenced code; shell blocks get lightweight token highlighting, text is escaped and raw HTML is not passed through. Credentials and operator input paths are excluded from public releases.
 
 ## Public routes
+
+All routes are served on the canonical `domain` only. Every hostname in `alias_domains` answers with a `308` redirect to the same path and query on the canonical domain, over both HTTP and HTTPS, and never serves content itself. One origin keeps Stash signatures, download URLs and browser storage unambiguous; aliases exist so a filing's `www` form or a legacy hostname keeps working.
 
 | Route | Behavior |
 | --- | --- |

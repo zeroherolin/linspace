@@ -17,10 +17,11 @@ Use an already-resolved, ICP-filed domain with its approved website name and com
 - Free ports 80/443, or use an existing Caddy 2.10+ installation.
 - Allow outbound access to package repositories and certificate authorities.
 
-Check DNS with the exact hostname you want to serve; the project creates no DNS records and adds no `www`:
+Check DNS for the hostname you want to serve. The site has one canonical hostname; if the filing also names another form, such as `www.your-domain.cn`, point that record at the same server and list it under `alias_domains` so it redirects here. The project creates no DNS records:
 
 ```sh
 getent ahosts your-domain.cn
+getent ahosts www.your-domain.cn   # only when you configure an alias
 ```
 
 ### 2. Install prerequisites and clone
@@ -45,7 +46,8 @@ The wizard saves `local/site.json`, which Git ignores. Enter keeps the current v
 
 | Setting | What to enter |
 | --- | --- |
-| `domain` | Your hostname, such as `tools.your-domain.cn`; no scheme, port or path |
+| `domain` | Your canonical hostname, such as `tools.your-domain.cn`; no scheme, port or path |
+| `alias_domains` | Hostnames that permanently redirect to `domain`, such as `www.your-domain.cn`; up to 8, `-` or `[]` for none |
 | `site_name` | Approved website name |
 | `icp_number` | Complete issued filing number, including its site suffix |
 | `ssh_public_key_file` | Public `.pub` file; `-` disables publishing |

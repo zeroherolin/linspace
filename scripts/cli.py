@@ -24,7 +24,7 @@ def configure(args):
     current = json.loads((ROOT / 'config/site.example.json').read_text())
     if args.config.exists():
         current.update(json.loads(args.config.read_text()))
-    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (Enter keeps the current value; - disables key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
+    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('alias_domains', 'Alias hostnames that redirect here, space-separated (e.g. www.your-domain.cn); - for none'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (Enter keeps the current value; - disables key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
     for key, prompt in questions:
         supplied = getattr(args, key, None)
         if supplied is not None:
@@ -33,8 +33,12 @@ def configure(args):
             if key == 'ssh_public_key_name' and not current.get('ssh_public_key_file'):
                 continue
             previous = current.get(key, '')
-            entered = input(f'{prompt}' + (f' [{previous}]' if previous else '') + ': ').strip()
-            current[key] = '' if key == 'ssh_public_key_file' and entered == '-' else entered or previous
+            shown = ' '.join(previous) if key == 'alias_domains' else previous
+            entered = input(f'{prompt}' + (f' [{shown}]' if shown else '') + ': ').strip()
+            if key == 'alias_domains':
+                current[key] = [] if entered == '-' else entered.split() if entered else (previous or [])
+            else:
+                current[key] = '' if key == 'ssh_public_key_file' and entered == '-' else entered or previous
     if args.stash_public_key_files is not None:
         current['stash_public_key_files'] = args.stash_public_key_files
     elif not args.non_interactive:
@@ -87,7 +91,7 @@ def main():
         p.add_argument('--internal-test', action='store_true', help='internal testing only; allow reserved domains and an empty filing number')
         if name == 'configure':
             for field in siteconfig.FIELDS:
-                p.add_argument('--' + field.replace('_', '-'), **({'nargs': '*'} if field == 'stash_public_key_files' else {}))
+                p.add_argument('--' + field.replace('_', '-'), **({'nargs': '*'} if field in ('stash_public_key_files', 'alias_domains') else {}))
             p.add_argument('--non-interactive', action='store_true')
         if name == 'deploy':
             for flag in ('dry-run', 'adopt-existing', 'skip-verify', 'local'):
@@ -118,7 +122,7 @@ def main():
         else:
             config, key, _, _ = siteconfig.load(args.config, args.internal_test)
             if args.command == 'verify':
-                verify.verify({'domain': config['domain'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name']}, args.local)
+                verify.verify({'domain': config['domain'], 'alias_domains': config['alias_domains'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name']}, args.local)
             else:
                 paths = ['', 'help', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload0', 'stash/download0', 'stash/clear']
                 paths += [f'{client}/uninstall' for client in ('mihomo', 'claude', 'codex')]
@@ -126,6 +130,8 @@ def main():
                     paths.insert(1, 'ssh/' + config['ssh_public_key_name'])
                 for path in paths:
                     print(f'https://{config["domain"]}/{path}')
+                for alias in config['alias_domains']:
+                    print(f'https://{alias}/  (redirects to https://{config["domain"]}/)')
 
 
 if __name__ == '__main__':

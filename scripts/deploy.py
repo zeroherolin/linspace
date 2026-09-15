@@ -138,12 +138,13 @@ def checked_release(release):
     if actual != expected:
         raise ValueError('Release contains missing or unlisted files')
     meta = json.loads((release / 'release.json').read_text())
-    if meta.get('format') != 1 or not re.fullmatch(r'[a-z0-9.-]+', meta['domain']):
+    hostnames = [meta.get('domain'), *meta.get('alias_domains', [])]
+    if meta.get('format') != 1 or not isinstance(meta.get('alias_domains', []), list) or any(not isinstance(h, str) or not re.fullmatch(r'[a-z0-9.-]+', h) for h in hostnames):
         raise ValueError('Unsupported release metadata')
     return meta, hashlib.sha256(manifest.read_bytes()).hexdigest()[:20]
 
 
-def merged_main(text, domain, fresh=False, adopt=False):
+def merged_main(text, domain, fresh=False, adopt=False, aliases=()):
     stripped = text.strip()
     # Files linspace wrote itself (marker, or the earlier import-only form) are upgraded in place.
     if fresh or not stripped or stripped == IMPORT or stripped.startswith(MARKER):
@@ -156,6 +157,9 @@ def merged_main(text, domain, fresh=False, adopt=False):
             if fnmatch.fnmatchcase(str(SITE), pattern):
                 return text
         depth += parts.count('{') - parts.count('}')
+    for hostname in (domain, *aliases):
+        if re.search(r'(?m)^\s*' + re.escape(hostname) + r'\s*[,{]', text) and hostname != domain:
+            raise ValueError(f'{hostname} already has a site block in the Caddyfile. Remove it or drop it from alias_domains.')
     if re.search(r'(?m)^\s*' + re.escape(domain) + r'\s*\{', text):
         # Adopt only the project's previous single-site layout. Other sites require manual integration.
         if adopt and stripped.startswith(domain + ' {') and 'root * /srv/linspace' in stripped:
@@ -245,7 +249,7 @@ def apply(release, args):
         raise ValueError('Rebuild this release for SSH signature authentication; use rollback to restore a legacy installation')
     if meta['internal_test'] and not args.internal_test:
         raise ValueError('An internal-test build requires --internal-test; rebuild with filed site details for production')
-    linspace_log('STEP', f'Deploy {meta["domain"]}')
+    linspace_log('STEP', f'Deploy {meta["domain"]}' + (' (+ ' + ', '.join(meta['alias_domains']) + ')' if meta.get('alias_domains') else ''))
     linspace_log('INFO', f'Release {release_id}; {meta["stash_key_count"]} authorized Stash key(s)')
     if args.dry_run:
         linspace_log('INFO', 'Plan: validate, install Caddy if needed, back up, activate, reload and verify HTTPS. No host changes made.')
@@ -285,7 +289,7 @@ def apply(release, args):
             previous = json.loads(STATE.read_text()).get('backup')
             if isinstance(previous, str) and not Path(previous).is_dir():
                 linspace_log('WARN', f'The backup recorded by the previous deployment is missing: {previous}. Rollback to that state is no longer possible.')
-        main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing)
+        main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing, aliases=meta.get('alias_domains', []))
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
         backup = Path('/var/backups/linspace') / stamp
         snapshot(backup)

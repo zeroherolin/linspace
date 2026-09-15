@@ -203,6 +203,17 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             deploy.merged_main(before + 'other.cn {\n respond "keep"\n}\n', 'mine.cn', adopt=True)
 
+    def test_alias_hostnames_already_served_elsewhere_are_rejected(self):
+        other = 'www.mine.cn {\n respond "legacy"\n}\n'
+        with self.assertRaisesRegex(ValueError, 'www.mine.cn already has a site block'):
+            deploy.merged_main(other, 'mine.cn', aliases=['www.mine.cn'])
+        with self.assertRaisesRegex(ValueError, 'www.mine.cn already has a site block'):
+            deploy.merged_main('www.mine.cn, old.cn {\n redir https://x/\n}\n', 'mine.cn', aliases=['www.mine.cn'])
+        kept = 'other.cn {\n respond "keep"\n}\n'
+        self.assertEqual(deploy.merged_main(kept, 'mine.cn', aliases=['www.mine.cn']), kept + '\n' + deploy.IMPORT + '\n')
+        # A Caddyfile linspace owns is upgraded regardless of aliases; the site file carries them.
+        self.assertEqual(deploy.merged_main(deploy.IMPORT + '\n', 'mine.cn', aliases=['www.mine.cn']), deploy.owned_main())
+
     def test_rollback_restores_file_bytes_modes_and_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

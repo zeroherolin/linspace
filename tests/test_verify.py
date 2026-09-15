@@ -94,6 +94,38 @@ class VerificationTests(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, method + ' /stash/download7'):
                             verify.verify({'domain': 'verify.example.test', 'ssh_enabled': False}, quiet=True)
 
+    def test_alias_hostnames_must_redirect_to_the_canonical_domain(self):
+        meta = {'domain': 'verify.example.test', 'alias_domains': ['www.verify.example.test'], 'ssh_enabled': False}
+        seen = []
+
+        def redirecting(domain, path, method='HEAD', local=False, scheme='https'):
+            if domain == 'www.verify.example.test':
+                seen.append((scheme, path))
+                target = f'https://verify.example.test{path}' if scheme == 'https' else f'https://{domain}/'
+                return 308, {'location': target}
+            return self.response(domain, path, method, local, scheme)
+
+        with patch.object(verify, 'probe', side_effect=redirecting), contextlib.redirect_stderr(io.StringIO()):
+            verify.verify(meta, quiet=True)
+        self.assertIn(('https', '/stash/download0?x=1'), seen)
+        self.assertIn(('http', '/'), seen)
+
+        def serving(domain, path, method='HEAD', local=False, scheme='https'):
+            if domain == 'www.verify.example.test':
+                return 200, {'content-type': 'text/html'}
+            return self.response(domain, path, method, local, scheme)
+
+        with patch.object(verify, 'probe', side_effect=serving), self.assertRaisesRegex(RuntimeError, 'www.verify.example.test'):
+            verify.verify(meta, quiet=True)
+
+        def dropping_path(domain, path, method='HEAD', local=False, scheme='https'):
+            if domain == 'www.verify.example.test':
+                return 308, {'location': 'https://verify.example.test/'}
+            return self.response(domain, path, method, local, scheme)
+
+        with patch.object(verify, 'probe', side_effect=dropping_path), self.assertRaisesRegex(RuntimeError, '/help'):
+            verify.verify(meta, quiet=True)
+
     def test_probe_get_discards_and_bounds_body_without_sending_a_write_payload(self):
         def request(command, **kwargs):
             Path(command[command.index('-D') + 1]).write_text('HTTP/1.1 200 OK\nContent-Type: text/plain\n')

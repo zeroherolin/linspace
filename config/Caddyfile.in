@@ -1,4 +1,4 @@
-@@DOMAIN@@ {
+@@ALIAS_BLOCK@@@@DOMAIN@@ {
     root * /srv/linspace/current
     header X-Content-Type-Options "nosniff"
     header Strict-Transport-Security "max-age=31536000"
