@@ -239,11 +239,14 @@ class LifecycleTests(unittest.TestCase):
 
     def test_macos_process_table_falls_back_when_libproc_is_unavailable(self):
         sample = ' 123  1  501 Mon Sep 14 10:00:00 2026 /Users/test/.local/bin/codex --version\n'
+        # Import while sys.platform is still real: on Linux, ctypes.util imported under a
+        # patched 'darwin' platform pulls in ctypes.macholib, which Debian's stdlib omits.
+        import ctypes.util
         if not sys.platform.startswith('linux'):
             self.processes.stop()
         with patch.object(common.sys, 'platform', 'darwin'), \
              patch.object(common, 'run', return_value=subprocess.CompletedProcess([], 0, sample, '')), \
-             patch('ctypes.util.find_library', return_value=None):
+             patch.object(ctypes.util, 'find_library', return_value=None):
             table = common.process_table()
         if not sys.platform.startswith('linux'):
             self.processes.start()
