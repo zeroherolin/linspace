@@ -13,6 +13,9 @@ export PATH="$HOME/.local/bin:$PATH"  # add to ~/.bashrc or ~/.zshrc
 # Relay credentials (skip for account sign-in)
 export ANTHROPIC_BASE_URL='https://relay.example' && \
     export ANTHROPIC_AUTH_TOKEN='YOUR_CLAUDE_TOKEN'
+
+# Start in your project directory
+cd /path/to/project && claude
 ```
 
 ## Codex
@@ -27,6 +30,12 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Relay credentials: prompts for base_url, then reads the token hidden
 curl -fsSL https://your-domain.cn/codex/auth | bash
+# Or pass both explicitly (visible in shell history and the process list):
+# curl -fsSL https://your-domain.cn/codex/auth | bash \
+#     -s -- -t 'YOUR_CODEX_TOKEN' -u 'https://relay.example/v1'
+
+# Start in your project directory
+cd /path/to/project && codex
 ```
 
 ## Uninstall
