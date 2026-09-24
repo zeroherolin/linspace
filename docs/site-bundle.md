@@ -1,6 +1,6 @@
 # linspace server bundle
 
-A built linspace release: the configured website, published SSH key when selected, client scripts, shared settings, Stash service and deployment tools. Site values are in `release.json`. Application downloads stay external.
+A built linspace release: the configured website, published SSH key when selected, client scripts, shared settings, the tmux configuration, Stash service and deployment tools. Site values are in `release.json`. Application and tmux package downloads stay external.
 
 Use Debian 12+ or Ubuntu 22.04+ with systemd, root/sudo, Python 3.9+, Bash, curl, CA certificates and OpenSSH. DNS and filing must be complete, with TCP 80/443 reachable. Missing Caddy is installed with a verified download fallback; existing Caddy must be 2.10+.
 

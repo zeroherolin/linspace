@@ -144,6 +144,11 @@ def checked_release(release):
     return meta, hashlib.sha256(manifest.read_bytes()).hexdigest()[:20]
 
 
+def shell_scripts(release):
+    """Every Bash program in a release, found by its shebang so new scripts need no list update."""
+    return [path for path in sorted(release.rglob('*')) if path.is_file() and path.read_bytes().startswith(b'#!/usr/bin/env bash')]
+
+
 def merged_main(text, domain, fresh=False, adopt=False, aliases=()):
     stripped = text.strip()
     # Files linspace wrote itself (marker, or the earlier import-only form) are upgraded in place.
@@ -258,9 +263,8 @@ def apply(release, args):
         raise ValueError('Deployment requires root on Debian/Ubuntu with a running systemd. Use sudo ./linspace deploy.')
     os.umask(0o022)
     # Syntax and checksums are checked before installing packages or changing services.
-    for script in list((release / 'site/mihomo').glob('*')) + list((release / 'site/stash').glob('upload*')) + [release / 'site/stash/clear', release / 'site/codex/auth', release / 'site/codex/install', release / 'site/claude/install', release / 'install-caddy.sh']:
-        if script.is_file():
-            run(['bash', '-n', script])
+    for script in shell_scripts(release):
+        run(['bash', '-n', script])
     compile((release / 'service/stashd.py').read_text(), 'stashd.py', 'exec')
     if shutil.which('curl') is None or shutil.which('ssh-keygen') is None:
         raise ValueError('Install the documented curl and OpenSSH prerequisites before deployment.')

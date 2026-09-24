@@ -1,4 +1,4 @@
-"""Remove recognized CLI installations while retaining conversation history."""
+"""Remove recognized CLI installations while retaining session records."""
 from common import *
 import argparse
 import glob
@@ -141,11 +141,11 @@ class Client:
             if result.returncode == 0 and re.search(re.escape(self.package) + r'(?:["\s@]|$)', result.stdout):
                 self.managers.append(([tool, *uninstall, self.package], None))
 
-    # Conversation history plus content the user wrote by hand. Everything else in the
-    # configuration directory (settings, credentials, installed plugins, caches, logs) is removed.
+    # Keep only records needed to reopen Claude Code or Codex sessions. Settings,
+    # credentials, plugins, caches, logs and user-authored extensions are removed.
     RETAINED = {
-        'claude': {'projects', 'history.jsonl', 'CLAUDE.md', 'commands', 'agents', 'skills', 'plans', 'hooks', 'rules'},
-        'codex': {'sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'AGENTS.md', 'prompts', 'skills', 'memories', 'rules', 'hooks'},
+        'claude': {'projects', 'history.jsonl'},
+        'codex': {'sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl'},
     }
 
     def history(self, dry_run):
@@ -239,13 +239,13 @@ class Client:
             leftovers += [p for p in self.roots + list(self.npm) if p.exists() or p.is_symlink()]
             if leftovers:
                 raise RuntimeError('Some installation files remain; resolve permissions and rerun uninstall.')
-        linspace_log('OK', 'Preview complete; no changes made.' if dry_run else f'{self.name} removed; conversation history and your own files were kept.')
+        linspace_log('OK', 'Preview complete; no changes made.' if dry_run else f'{self.name} removed; session records were kept.')
         linspace_log('INFO', 'Shell startup files and project directories are untouched. Open a new terminal to clear cached command paths.')
         linspace_log('INFO', 'Also clear API tokens exported in your shell; a child script cannot change the parent environment.')
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Stop and uninstall the CLI from recognized sources; keep conversation history and user-authored files.')
+    parser = argparse.ArgumentParser(description='Stop and uninstall the CLI from recognized sources; keep session records only.')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--bin', action='append', default=[], help='Additional absolute executable path outside PATH')
     args = parser.parse_args()

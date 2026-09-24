@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Install tmux from the host's package manager.
+main() (
+    set -Eeuo pipefail
+    umask 077
+@@include:src/common/ui.sh@@
+    fail() { linspace_log ERROR "$*"; exit 1; }
+    version_at_least() {
+        local output=$1 required_major=$2 required_minor=$3 major minor
+        [[ $output =~ ([0-9]+)\.([0-9]+) ]] || return 1
+        major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}
+        (( 10#$major > required_major || 10#$major == required_major && 10#$minor >= required_minor ))
+    }
+    if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+        printf 'Usage: curl -fsSL https://@@DOMAIN@@/tmux/install | bash\n'
+        printf 'Installs tmux with the host package manager; it does not edit ~/.tmux.conf.\n'
+        printf 'Install the shared configuration with: curl -fsSL https://@@DOMAIN@@/tmux/config -o ~/.tmux.conf\n'
+        exit 0
+    fi
+    [[ $# == 0 ]] || fail 'No arguments are accepted.'
+    [[ -z ${SUDO_USER:-} || ${SUDO_USER:-} == root ]] || fail 'Run as the account that will use tmux, without sudo.'
+
+    if command -v tmux >/dev/null 2>&1; then
+        version=$(tmux -V 2>/dev/null || true)
+        [[ $version == tmux\ * ]] || fail 'The existing tmux command did not report a valid version.'
+        version_at_least "$version" 3 2 || fail "The existing $version is too old; tmux 3.2 or newer is required for this configuration."
+        linspace_log OK "Using existing $version"
+        linspace_log INFO 'Shared configuration: curl -fsSL https://@@DOMAIN@@/tmux/config -o ~/.tmux.conf && chmod 600 ~/.tmux.conf'
+        exit 0
+    fi
+
+    run_privileged() {
+        if [[ $EUID == 0 ]]; then
+            "$@"
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo "$@"
+        else
+            fail 'tmux is not installed and sudo is unavailable; install tmux with your system package manager, then retry.'
+        fi
+    }
+
+    case "$(uname -s)" in
+        Darwin)
+            brew=$(command -v brew || true)
+            [[ -n $brew ]] || for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+                [[ -x $candidate ]] || continue
+                brew=$candidate
+                break
+            done
+            [[ -n $brew ]] || fail 'Homebrew is required on macOS; install it from https://brew.sh, then retry.'
+            PATH=${brew%/*}:$PATH
+            export PATH
+            linspace_log STEP 'Install tmux with Homebrew'
+            HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 "$brew" install tmux
+            ;;
+        Linux)
+            if command -v apt-get >/dev/null 2>&1; then
+                manager=$(command -v apt-get)
+                linspace_log STEP 'Install tmux with apt'
+                # Stale package lists make apt report that tmux does not exist.
+                run_privileged "$manager" update || linspace_log WARN 'Package lists were not refreshed; installing from the current lists.'
+                run_privileged "$manager" install -y tmux
+            elif command -v dnf >/dev/null 2>&1; then
+                manager=$(command -v dnf)
+                linspace_log STEP 'Install tmux with dnf'
+                run_privileged "$manager" install -y tmux
+            elif command -v yum >/dev/null 2>&1; then
+                manager=$(command -v yum)
+                linspace_log STEP 'Install tmux with yum'
+                run_privileged "$manager" install -y tmux
+            elif command -v pacman >/dev/null 2>&1; then
+                manager=$(command -v pacman)
+                linspace_log STEP 'Install tmux with pacman'
+                run_privileged "$manager" -S --needed --noconfirm tmux
+            elif command -v apk >/dev/null 2>&1; then
+                manager=$(command -v apk)
+                linspace_log STEP 'Install tmux with apk'
+                run_privileged "$manager" add --no-cache tmux
+            else
+                fail 'No supported Linux package manager was found; install tmux with the host package manager, then retry.'
+            fi
+            ;;
+        *)
+            fail 'Linux or macOS is required.'
+            ;;
+    esac
+
+    command -v tmux >/dev/null 2>&1 || fail 'The package manager completed, but tmux is not on PATH.'
+    version=$(tmux -V 2>/dev/null || true)
+    [[ $version == tmux\ * ]] || fail 'The installed tmux command did not report a valid version.'
+    version_at_least "$version" 3 2 || fail "The installed $version is too old; tmux 3.2 or newer is required for this configuration. Use a newer distribution release or tmux package."
+    linspace_log OK "Installed $version"
+    linspace_log INFO 'Shared configuration: curl -fsSL https://@@DOMAIN@@/tmux/config -o ~/.tmux.conf && chmod 600 ~/.tmux.conf'
+)
+main "$@"

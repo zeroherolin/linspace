@@ -1,16 +1,17 @@
 # User guide
 
-Commands for using a linspace site. Replace `your-domain.cn` with the site domain. Run them as the account that will use the tool; only Mihomo needs root. Stop when a command fails. The site's `/help` page shows the Claude Code and Codex commands in short form.
+Commands for using a linspace site. Replace `your-domain.cn` with the site domain. Run them as the account that will use the tool; Mihomo needs root, and Linux tmux installation may ask for sudo. Stop when a command fails. The site's `/help` page shows the tmux, Claude Code and Codex commands in short form; `/help2` covers every section.
 
 ## Requirements
 
 | Feature | Platform | Tools |
 | --- | --- | --- |
-| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | Bash, curl, tar, gzip, diff, `sha256sum` or `shasum` |
-| Mihomo | Debian/Ubuntu x86_64/ARM64, root | same |
 | SSH, Stash writes | Linux or macOS | OpenSSH 8.2+ |
+| Mihomo | Debian/Ubuntu x86_64/ARM64, root | Bash, curl, tar, gzip, diff, `sha256sum` or `shasum` |
+| tmux | Linux or macOS | apt/dnf/yum/pacman/apk, or Homebrew on macOS |
+| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | same as Mihomo |
 
-Installers use official sources first, then verified fallback downloads. They never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
+Download-based installers use official sources first, then verified fallback downloads. The tmux installer uses the host package manager. Installers never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
 
 ## SSH
 
@@ -67,6 +68,21 @@ tail -n 50 /var/log/mihomo/mihomo.log
 ```
 
 Configuration is `/etc/mihomo/config.yaml`; nodes and GeoIP are under `/var/lib/mihomo/`. TUN, built-in DNS, sniffing and automatic updates are disabled. If site downloads are unavailable, use the [Mihomo bundle](mihomo-bundle.md) from the operator.
+
+## tmux
+
+Install tmux through the host package manager and download the shared configuration:
+
+```sh
+curl -fsSL https://your-domain.cn/tmux/install | bash
+curl -fsSL https://your-domain.cn/tmux/config -o ~/.tmux.conf
+chmod 600 ~/.tmux.conf
+tmux new-session -A -s work
+```
+
+Linux uses the first available `apt-get`, `dnf`, `yum`, `pacman` or `apk` and may ask for sudo; macOS uses Homebrew. An existing tmux 3.2 or newer is reused; older versions are rejected because the shared configuration needs 3.2. The installer does not edit shell startup files or write `~/.tmux.conf`; the configuration is a separate explicit download that replaces the file.
+
+After editing `~/.tmux.conf`, apply it to the running server with `tmux source-file ~/.tmux.conf`; new servers read the file when they start. `Ctrl-b` then `d` detaches, and the same `new-session -A` command reconnects.
 
 ## Claude Code
 
@@ -160,15 +176,16 @@ Launchers live in `~/.local/bin`. The installer prints the `export PATH` command
 ## Uninstall
 
 ```sh
+curl -fsSL https://your-domain.cn/mihomo/uninstall | bash
+curl -fsSL https://your-domain.cn/tmux/uninstall | bash
 curl -fsSL https://your-domain.cn/claude/uninstall | bash
 curl -fsSL https://your-domain.cn/codex/uninstall | bash
-curl -fsSL https://your-domain.cn/mihomo/uninstall | bash
 ```
 
-Run the Mihomo command as root. Add `-s -- --dry-run` after `bash` to preview, or `-s -- --bin /absolute/path` to include an executable outside PATH.
+Run the Mihomo command as root. Add `-s -- --dry-run` after `bash` to preview; the Mihomo, Claude Code and Codex commands also accept `-s -- --bin /absolute/path` to include an executable outside PATH.
 
-Each command stops the program and removes recognized installations, settings, credentials, caches and installed plugins without backups. **Conversation history and files you wrote yourself are kept. Claude Code keeps `~/.claude/projects/`, `history.jsonl`, `CLAUDE.md`, `commands/`, `agents/`, `skills/`, `plans/`, `hooks/` and `rules/`; Codex keeps `sessions/`, `archived_sessions/`, `history.jsonl`, `session_index.jsonl`, session state databases, `AGENTS.md`, `prompts/`, `skills/`, `memories/`, `rules/` and `hooks/`.** `~/.claude.json` (per-project trust and MCP settings) is removed. Mihomo retains nothing.
+Each command stops the program and removes recognized installations, settings, credentials, caches and installed plugins without backups. **Only session records are kept. Claude Code keeps `~/.claude/projects/` and `history.jsonl`; Codex keeps `sessions/`, `archived_sessions/`, `history.jsonl`, `session_index.jsonl` and session state databases.** User-authored settings, prompts, skills, hooks, rules and other extensions are removed. `~/.claude.json` (per-project trust and MCP settings) is removed. Mihomo retains nothing. The tmux command refuses to run while a tmux server is running, removes the package with its package manager and deletes `~/.tmux.conf`, plugins, sockets and caches.
 
 Recognized sources: linspace, official native or standalone packages, global npm/pnpm/Yarn/Bun, Homebrew, Linux packages and identified binaries in PATH; for Mihomo also systemd, Supervisor and the official manual layout. Package-managed installations are removed with their package manager; system packages need administrator access. Unknown layouts and shared launchers or services stop with an actionable error. Other accounts, IDE extensions, desktop bundles and shared runtimes are never removed. Startup files are never edited; exported tokens must be unset in the parent shell. After removing Mihomo, run `unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY`.
 
-Open a new terminal afterward. Reinstalling uses the normal commands; retained history remains available.
+Open a new terminal afterward. Reinstalling uses the normal commands; retained session records remain available.

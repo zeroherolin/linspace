@@ -252,7 +252,7 @@ def clear_history_except(directory, allowed, dry_run=False):
         return
     for item in directory.iterdir():
         if allowed(item.name):
-            linspace_log('INFO', f'Keep conversation history: {item}')
+            linspace_log('INFO', f'Keep session records: {item}')
         else:
             remove(item, dry_run)
     if not dry_run and not any(directory.iterdir()):

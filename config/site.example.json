@@ -7,5 +7,6 @@
   "ssh_public_key_name": "key.pub",
   "claude_settings_file": "config/claude/settings.json",
   "codex_config_file": "config/codex/config.toml",
+  "tmux_config_file": "config/tmux.conf",
   "stash_public_key_files": null
 }

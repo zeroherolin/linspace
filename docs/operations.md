@@ -19,13 +19,13 @@ sudo ./linspace deploy
 
 A new domain needs DNS and filing first. Alias hostnames need their own DNS records pointing at the server; Caddy obtains a certificate for each and redirects it to the canonical domain. Changing the published SSH filename changes its URL. Use `--config local/other.json` on every command for a separate profile; profiles with different SSH keys should reference distinct key files.
 
-The public `/help` page is built from `docs/help.md`: edit it, run `./linspace check`, then deploy.
+The public `/help` and `/help2` pages are built from `docs/help.md` and `docs/help2.md`: edit them, run `./linspace check`, then deploy.
 
 If Git reports HTTP/2 framing errors, retry with `git -c http.version=HTTP/1.1 -c protocol.version=1 pull --ff-only`.
 
 ## Shared client configuration
 
-Select `claude_settings_file` and `codex_config_file` in the site profile, then redeploy. Clients download the new files themselves and restart their tools. Client `auth.json` files and tokens must never be published. Refresh Codex model metadata with the [catalog procedure](architecture.md#codex-preset-and-catalog).
+Select `claude_settings_file`, `codex_config_file` and `tmux_config_file` in the site profile, then redeploy. Claude Code and Codex clients download the new files themselves and restart their tools; tmux users download `/tmux/config` again and reload it. Keep custom files in `local/` so updates pull cleanly. Client `auth.json` files and tokens must never be published. Refresh Codex model metadata with the [catalog procedure](architecture.md#codex-preset-and-catalog).
 
 ## Stash authorized keys
 

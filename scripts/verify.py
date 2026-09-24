@@ -10,6 +10,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+# Public client routes in feature order; the Caddy allowlist and the URL listing follow it.
+CLIENT_ROUTES = ('mihomo/install', 'mihomo/sub', 'mihomo/restart', 'mihomo/uninstall',
+                 'tmux/install', 'tmux/config', 'tmux/uninstall',
+                 'claude/install', 'claude/config', 'claude/uninstall',
+                 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'codex/uninstall')
+
 
 def probe(domain, path, method='HEAD', local=False, scheme='https'):
     with tempfile.TemporaryDirectory(prefix='linspace-http-') as temporary:
@@ -40,12 +46,9 @@ def probe(domain, path, method='HEAD', local=False, scheme='https'):
 def verify(meta, local=False, quiet=False):
     domain = meta['domain']
     paths = ['ssh/' + meta.get('ssh_public_key_name', 'key.pub')] if meta['ssh_enabled'] else []
-    paths += ['mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload', 'stash/clear']
-    paths += [f'{client}/uninstall' for client in ('mihomo', 'claude', 'codex')]
-    paths += [f'stash/upload{n}' for n in range(8)]
-    paths += ['stash/keys', 'stash/challenge']
+    paths += [*CLIENT_ROUTES, 'stash/upload', 'stash/clear', *[f'stash/upload{n}' for n in range(8)], 'stash/keys', 'stash/challenge']
     checks = [('/', 200, 'text/html', 'no-store')]
-    checks += [('/help', 200, 'text/html', 'no-store')]
+    checks += [('/help', 200, 'text/html', 'no-store'), ('/help2', 200, 'text/html', 'no-store')]
     checks += [('/' + p, 200, 'text/plain', 'no-store') for p in paths]
     for path, expected, media, cache in checks:
         status, headers = probe(domain, path, local=local)

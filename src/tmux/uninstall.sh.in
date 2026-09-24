@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Uninstall tmux through the host's package manager.
+main() (
+    set -Eeuo pipefail
+    umask 077
+@@include:src/common/ui.sh@@
+    fail() { linspace_log ERROR "$*"; exit 1; }
+    dry_run=0
+    for argument in "$@"; do
+        case $argument in
+            --dry-run) dry_run=1 ;;
+            -h|--help)
+                printf 'Usage: curl -fsSL https://@@DOMAIN@@/tmux/uninstall | bash -s -- [--dry-run]\n'
+                printf 'Removes the tmux package, configuration, plugins and caches. Close all tmux sessions first.\n'
+                exit 0 ;;
+            *) fail "Unknown argument: $argument" ;;
+        esac
+    done
+    [[ -z ${SUDO_USER:-} || ${SUDO_USER:-} == root ]] || fail 'Run as the account that owns the tmux sessions, without sudo.'
+    [[ ${HOME:-} == /* && $HOME != / && -d $HOME ]] || fail 'HOME must be an absolute account directory.'
+    account_home=$(cd -- "$HOME" && pwd -P)
+    case $account_home in /|/etc|/usr|/usr/local|/var|/tmp|/home|/Users|/opt|/private/tmp|/private/var) fail 'HOME must be a private account directory.' ;; esac
+    targets=("$account_home/.tmux.conf" "$account_home/.tmux.conf.local" "$account_home/.tmux"
+             "$account_home/.config/tmux" "$account_home/.local/share/tmux"
+             "$account_home/.cache/tmux" "$account_home/.cache/linspace/tmux")
+    for base in "${XDG_CONFIG_HOME:-$account_home/.config}" "${XDG_DATA_HOME:-$account_home/.local/share}" "${XDG_CACHE_HOME:-$account_home/.cache}"; do
+        base=${base%/}
+        case $base in
+            /|/etc|/usr|/usr/local|/var|/tmp|/home|/Users|/opt|/private/tmp|/private/var|"$account_home") fail 'XDG directories must be private account directories.' ;;
+        esac
+        [[ $base == /* && ! $base =~ [[:cntrl:]] ]] || fail 'XDG directories must be absolute paths.'
+        targets+=("${base%/}/tmux")
+    done
+    targets+=("${XDG_CACHE_HOME:-$account_home/.cache}/linspace/tmux")
+    socket_root=${TMUX_TMPDIR:-/tmp}
+    [[ $socket_root == /* && $socket_root != / && ! $socket_root =~ [[:cntrl:]] ]] || fail 'TMUX_TMPDIR must be an absolute private directory.'
+    [[ ${UID:-} =~ ^[0-9]+$ ]] || fail 'The account UID is unavailable.'
+    targets+=("${socket_root%/}/tmux-$UID")
+    # Validate all deletion targets before invoking a package manager. A final
+    # symlink may be unlinked, but never traverse a redirected parent directory.
+    for target in "${targets[@]}"; do
+        [[ $target == /* && $target != "$account_home" && ! $target =~ [[:cntrl:]] ]] || fail 'Use private, absolute tmux data paths.'
+        case "$target/" in *'/../'*|*'/./'*|*'//'*) fail 'tmux data paths must not contain dot components or repeated slashes.' ;; esac
+        parent=${target%/*}
+        while [[ -n $parent ]]; do
+            if [[ -L $parent ]]; then
+                case "$parent:$(readlink "$parent")" in
+                    /tmp:private/tmp|/tmp:/private/tmp|/var:private/var|/var:/private/var) ;;
+                    *) fail "Refusing a symlinked data directory: $parent" ;;
+                esac
+            fi
+            parent=${parent%/*}
+        done
+        [[ $target != "$account_home/.tmux.conf" && $target != "$account_home/.tmux.conf.local" || ! -d $target || -L $target ]] || fail "Expected a configuration file: $target"
+    done
+
+    if command -v tmux >/dev/null 2>&1 && tmux has-session >/dev/null 2>&1; then
+        fail 'A tmux server is running; detach and stop its sessions, then retry.'
+    fi
+    # has-session checks one socket only. Named/custom sockets and other users'
+    # servers must also be closed before removing a shared installation.
+    processes=$(ps -A -o comm=) || fail 'Could not check running tmux processes.'
+    while IFS= read -r process; do
+        case $process in tmux|'tmux: server'|'tmux: client'|*/tmux) fail 'A tmux process is running; close all tmux sessions and retry.' ;; esac
+    done <<< "$processes"
+
+    run_privileged() {
+        if [[ $EUID == 0 ]]; then
+            "$@"
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo "$@"
+        else
+            fail 'Removing tmux requires sudo; install or remove it with the host package manager.'
+        fi
+    }
+
+    platform=$(uname -s)
+    removal=()
+    case "$platform" in
+        Darwin)
+            brew=$(command -v brew || true)
+            [[ -n $brew ]] || for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+                [[ -x $candidate ]] || continue
+                brew=$candidate
+                break
+            done
+            if [[ -n $brew ]]; then
+                PATH=${brew%/*}:$PATH
+                export PATH
+                if HOMEBREW_NO_AUTO_UPDATE=1 "$brew" list --formula tmux >/dev/null 2>&1; then
+                    removal=("$brew" uninstall --force --formula tmux)
+                fi
+            fi
+            ;;
+        Linux)
+            if command -v apt-get >/dev/null 2>&1; then
+                command -v dpkg-query >/dev/null 2>&1 || fail 'dpkg-query was not found; inspect the tmux installation before removing it.'
+                status=$(dpkg-query -W -f='${db:Status-Status}' tmux 2>/dev/null || true)
+                if [[ $status == installed || $status == config-files ]]; then
+                    removal=("$(command -v apt-get)" purge -y tmux)
+                fi
+            elif command -v dnf >/dev/null 2>&1; then
+                command -v rpm >/dev/null 2>&1 || fail 'rpm is required to inspect the tmux package.'
+                if rpm -q tmux >/dev/null 2>&1; then removal=("$(command -v dnf)" remove -y tmux); fi
+            elif command -v yum >/dev/null 2>&1; then
+                command -v rpm >/dev/null 2>&1 || fail 'rpm is required to inspect the tmux package.'
+                if rpm -q tmux >/dev/null 2>&1; then removal=("$(command -v yum)" remove -y tmux); fi
+            elif command -v pacman >/dev/null 2>&1; then
+                if pacman -Q tmux >/dev/null 2>&1; then removal=("$(command -v pacman)" -Rn --noconfirm tmux); fi
+            elif command -v apk >/dev/null 2>&1; then
+                if apk info -e tmux >/dev/null 2>&1; then removal=("$(command -v apk)" del --purge tmux); fi
+            fi
+            ;;
+        *)
+            fail 'Linux or macOS is required.'
+            ;;
+    esac
+    if [[ ${#removal[@]} == 0 ]] && command -v tmux >/dev/null 2>&1; then
+        fail 'tmux is not registered with a supported package manager; remove that installation first, then rerun to clean its data.'
+    fi
+    if [[ ${#removal[@]} != 0 ]]; then
+        if [[ $dry_run == 1 ]]; then
+            linspace_log INFO "Would run: ${removal[*]}"
+        else
+            linspace_log STEP 'Remove tmux'
+            if [[ $platform == Darwin ]]; then
+                HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 "${removal[@]}"
+            else
+                run_privileged "${removal[@]}"
+            fi
+            hash -r
+            command -v tmux >/dev/null 2>&1 && fail 'Another tmux remains on PATH; remove that installation, then rerun to clean its data.'
+        fi
+    fi
+    for target in "${targets[@]}"; do
+        [[ -e $target || -L $target ]] || continue
+        linspace_log INFO "Remove $target"
+        [[ $dry_run == 0 ]] || continue
+        if [[ -L $target || ! -d $target ]]; then rm -f -- "$target"; else rm -rf -- "$target"; fi
+    done
+    if [[ $dry_run == 1 ]]; then
+        linspace_log OK 'Preview complete; no changes made.'
+    else
+        linspace_log OK 'Removed tmux, configuration, plugins and caches.'
+    fi
+)
+main "$@"

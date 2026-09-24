@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build
 import deploy
+import verify
 
 
 class BuildTests(unittest.TestCase):
@@ -46,14 +47,16 @@ class BuildTests(unittest.TestCase):
             self.assertIn('Site &lt;test&gt;', (release / 'site/index.html').read_text())
             self.assertIn('custom.example.test {', (release / 'config/Caddyfile').read_text())
             self.assertEqual(set(re.findall(r'/ssh/[a-zA-Z0-9._-]+', (release / 'config/Caddyfile').read_text())), {'/ssh/team.pub'})
-            self.assertIn('/codex/install', (release / 'config/Caddyfile').read_text())
+            # The Caddy allowlist and passive verification must name the same public text routes in feature order.
+            text_routes = re.search(r'@text path (.*)', (release / 'config/Caddyfile').read_text()).group(1).split()
+            self.assertEqual(text_routes, ['/ssh/team.pub', *('/' + route for route in verify.CLIENT_ROUTES)])
             self.assertTrue((release / 'site/codex/install').read_text().startswith('#!/usr/bin/env bash'))
             self.assertNotIn('redir https://chatgpt.com', (release / 'config/Caddyfile').read_text())
-            self.assertIn('/codex/config', (release / 'config/Caddyfile').read_text())
             self.assertEqual((release / 'site/codex/config').read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
             self.assertEqual(build.siteconfig.tomllib.loads((release / 'site/codex/config').read_text())['model_catalog_json'], 'models-1m.json')
-            self.assertIn('/codex/models_1m', (release / 'config/Caddyfile').read_text())
-            self.assertIn('/codex/auth', (release / 'config/Caddyfile').read_text())
+            self.assertTrue((release / 'site/tmux/install').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertTrue((release / 'site/tmux/uninstall').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertEqual((release / 'site/tmux/config').read_bytes(), (ROOT / 'config/tmux.conf').read_bytes())
             self.assertIn('/help', (release / 'config/Caddyfile').read_text())
             self.assertIn('href="/help"', (release / 'site/index.html').read_text())
             help_page = (release / 'site/help').read_text()
@@ -64,6 +67,15 @@ class BuildTests(unittest.TestCase):
             self.assertNotIn('mihomo', help_page.lower())
             self.assertIn('<pre data-language="bash"><code>', help_page)
             self.assertNotIn('<script', help_page.lower())
+            help2_page = (release / 'site/help2').read_text()
+            self.assertIn('<title>Linspace Complete Help · Site &lt;test&gt;</title>', help2_page)
+            self.assertIn('<h2>SSH key</h2>', help2_page)
+            self.assertIn('https://custom.example.test/ssh/team.pub', help2_page)
+            self.assertIn('https://custom.example.test/mihomo/install', help2_page)
+            self.assertIn('https://custom.example.test/stash/upload7', help2_page)
+            self.assertNotIn('your-key.pub', help2_page)
+            self.assertNotIn('beian.miit.gov.cn', help2_page)
+            self.assertNotIn('@@', help2_page)
             auth = (release / 'site/codex/auth').read_text()
             self.assertIn('https://custom.example.test/codex/auth', auth)
             subprocess.run(['bash', '-n'], input=auth, text=True, check=True)
@@ -128,6 +140,9 @@ class BuildTests(unittest.TestCase):
             release = build.build(config, root / 'dist', internal=True)
             self.assertFalse((release / 'site/ssh').exists())
             self.assertNotIn('/ssh/', (release / 'config/Caddyfile').read_text())
+            for page in ('site/help', 'site/help2'):
+                self.assertNotIn('/ssh/', (release / page).read_text())
+                self.assertNotIn('SSH key', (release / page).read_text())
             self.assertFalse(json.loads((release / 'release.json').read_text())['ssh_enabled'])
             self.assertEqual(json.loads((release / 'release.json').read_text())['stash_key_count'], 0)
             self.assertEqual((release / 'config/stash.allowed_signers').read_bytes(), b'')
@@ -139,11 +154,14 @@ class BuildTests(unittest.TestCase):
             claude.write_text('{"language":"English"}')
             codex = root / 'private-location-codex.toml'
             codex.write_text('# Keep this comment\nmodel_reasoning_effort = "high"\n')
+            tmux = root / 'private-location-tmux.conf'
+            tmux.write_text('# Shared\nset -g mouse on\n')
             config = root / 'site.json'
-            config.write_text(json.dumps({'domain': 'clients.example.test', 'site_name': 'Clients', 'icp_number': '', 'claude_settings_file': str(claude), 'codex_config_file': str(codex)}))
+            config.write_text(json.dumps({'domain': 'clients.example.test', 'site_name': 'Clients', 'icp_number': '', 'claude_settings_file': str(claude), 'codex_config_file': str(codex), 'tmux_config_file': str(tmux)}))
             release = build.build(config, root / 'dist', internal=True)
             self.assertEqual(json.loads((release / 'site/claude/config').read_text()), {'language': 'English'})
             self.assertEqual((release / 'site/codex/config').read_bytes(), codex.read_bytes())
+            self.assertEqual((release / 'site/tmux/config').read_bytes(), tmux.read_bytes())
             for path in release.rglob('*'):
                 if path.is_file() and path.suffix not in ('.dat', '.gz'):
                     self.assertNotIn('private-location-', path.read_text())

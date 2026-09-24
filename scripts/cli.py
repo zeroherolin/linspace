@@ -24,7 +24,7 @@ def configure(args):
     current = json.loads((ROOT / 'config/site.example.json').read_text())
     if args.config.exists():
         current.update(json.loads(args.config.read_text()))
-    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('alias_domains', 'Alias hostnames that redirect here, space-separated (e.g. www.your-domain.cn); - for none'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (Enter keeps the current value; - disables key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file')]
+    questions = [('domain', 'Domain (already resolved and ICP-filed; no https://)'), ('alias_domains', 'Alias hostnames that redirect here, space-separated (e.g. www.your-domain.cn); - for none'), ('site_name', 'Registered website name'), ('icp_number', 'Complete ICP filing number'), ('ssh_public_key_file', 'SSH PUBLIC key file (Enter keeps the current value; - disables key publishing)'), ('ssh_public_key_name', 'Published SSH key filename (e.g. team.pub)'), ('claude_settings_file', 'Public Claude Code settings JSON file'), ('codex_config_file', 'Public Codex configuration TOML file'), ('tmux_config_file', 'Public tmux configuration file')]
     for key, prompt in questions:
         supplied = getattr(args, key, None)
         if supplied is not None:
@@ -124,10 +124,10 @@ def main():
             if args.command == 'verify':
                 verify.verify({'domain': config['domain'], 'alias_domains': config['alias_domains'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name']}, args.local)
             else:
-                paths = ['', 'help', 'mihomo/install', 'mihomo/sub', 'mihomo/restart', 'claude/install', 'claude/config', 'codex/install', 'codex/config', 'codex/models_1m', 'codex/auth', 'stash/upload0', 'stash/download0', 'stash/clear']
-                paths += [f'{client}/uninstall' for client in ('mihomo', 'claude', 'codex')]
+                paths = ['', 'help', 'help2']
                 if key:
-                    paths.insert(1, 'ssh/' + config['ssh_public_key_name'])
+                    paths.append('ssh/' + config['ssh_public_key_name'])
+                paths += [*verify.CLIENT_ROUTES, 'stash/upload0', 'stash/download0', 'stash/clear']
                 for path in paths:
                     print(f'https://{config["domain"]}/{path}')
                 for alias in config['alias_domains']:

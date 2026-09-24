@@ -16,7 +16,7 @@
   --pre-bg: #f5f6f7;
   --pre-fg: #1f2329;
   --accent: #3370ff;
-  --c: #8f959e;
+  --c: #646a73;
   --s: #2ea121;
   --k: #d9760c;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
@@ -33,7 +33,7 @@
     --pre-bg: #232323;
     --pre-fg: #e3e3e3;
     --accent: #4c88ff;
-    --c: #7a7a7a;
+    --c: #a6a6a6;
     --s: #62c554;
     --k: #f0a04a;
   }
@@ -58,7 +58,7 @@ main, footer {
   padding-left: 2rem;
   padding-right: 2rem;
 }
-main { flex: 1; padding-top: 4rem; padding-bottom: 4rem; }
+main { flex: 1; padding-top: 3.25rem; padding-bottom: 3.5rem; }
 h1 {
   margin: 0 0 0.75rem;
   font-size: 1.75rem;
@@ -75,10 +75,13 @@ h2 {
 }
 h3 { margin: 1.5rem 0 0.625rem; font-size: 1.05rem; font-weight: 600; }
 p, ul, ol { margin: 0 0 1rem; }
+p { overflow-wrap: anywhere; }
 ul, ol { padding-left: 1.5rem; }
 li { margin: 0.25rem 0; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+main > p { max-width: 48rem; }
 code {
   padding: 0.1em 0.4em;
   border-radius: 4px;
@@ -160,7 +163,7 @@ footer a { color: var(--muted); }
 @media (max-width: 720px) {
   body { font-size: 14.5px; }
   main, footer { padding-left: 1.25rem; padding-right: 1.25rem; }
-  main { padding-top: 2.5rem; padding-bottom: 3rem; }
+  main { padding-top: 2.25rem; padding-bottom: 2.75rem; }
   footer { padding-top: 1.25rem; padding-bottom: 2.5rem; }
   h1 { font-size: 1.5rem; }
   h1 + p { margin-bottom: 1.75rem; }
@@ -178,8 +181,7 @@ footer a { color: var(--muted); }
 @@BODY@@
 </main>
 <footer>
-  <a href="/">@@SITE_NAME@@</a>
-  <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">@@ICP_NUMBER@@</a>
+@@FOOTER@@
 </footer>
 </body>
 </html>

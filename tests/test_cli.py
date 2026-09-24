@@ -36,6 +36,7 @@ class CliTests(unittest.TestCase):
             result = command('configure', '--non-interactive')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(profile.read_text())['codex_config_file'], 'config/codex/config.toml')
+            self.assertEqual(json.loads(profile.read_text())['tmux_config_file'], 'config/tmux.conf')
             self.assertEqual(json.loads(profile.read_text())['ssh_public_key_name'], 'key.pub')
             custom = root / 'shared.toml'
             custom.write_text('model_reasoning_effort = "high"\n')
@@ -45,6 +46,9 @@ class CliTests(unittest.TestCase):
             urls = command('urls')
             self.assertEqual(urls.returncode, 0, urls.stderr)
             paths = [line.removeprefix('https://cli.example.test/') for line in urls.stdout.splitlines()]
+            self.assertLess(paths.index('help2'), paths.index('mihomo/install'))
+            self.assertLess(paths.index('mihomo/uninstall'), paths.index('tmux/install'))
+            self.assertLess(paths.index('tmux/uninstall'), paths.index('claude/install'))
             self.assertLess(paths.index('claude/config'), paths.index('codex/install'))
             self.assertLess(paths.index('codex/install'), paths.index('codex/config'))
             self.assertLess(paths.index('codex/config'), paths.index('codex/models_1m'))

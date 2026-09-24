@@ -7,18 +7,19 @@
 | `config/` and ignored `local/` | Templates, public presets, download manifest and operator inputs |
 | `scripts/siteconfig.py` | Domain, alias, filing, public-key and client-setting validation |
 | `scripts/codex_catalog.py` | Catalog integrity, consistency and refresh |
-| `scripts/helppage.py` | Render `docs/help.md` into the public `/help` page |
+| `scripts/helppage.py` | Render `docs/help.md` and `docs/help2.md` into `/help` and `/help2` |
 | `scripts/build.py` | Render files and create checksummed bundles |
 | `scripts/deploy.py` | Back up, activate, verify and recover |
 | Caddy | HTTPS, route allowlists, caching and body limits |
 | `src/common/` | Download fallback and terminal output |
 | `src/lifecycle/` | Client installation, source discovery, process stopping and uninstall |
 | `src/mihomo/` | Client proxy tools |
+| `src/tmux/` | tmux package-manager install and removal |
 | `src/codex/` | Local API credential setup |
 | `src/stash/` | Signed upload clients and the text writer |
 | `vendor/` | Bundled `tomli` and PyYAML ZIPs with `manifest.json`, plus third-party notices |
 
-Claude JSON is serialized during build; Codex TOML preserves formatting. `docs/help.md` supports headings, paragraphs, lists, inline and fenced code; shell blocks get lightweight token highlighting, text is escaped and raw HTML is not passed through. Credentials and operator input paths are excluded from public releases.
+Claude JSON is serialized during build; Codex TOML and the tmux configuration keep their bytes. Help sources support headings, paragraphs, lists, inline and fenced code. `docs/help2.md` pulls shared sections from `docs/help.md` with `@@include:docs/help.md#Heading@@` lines; the build replaces `your-domain.cn` and `your-key.pub` and drops the SSH section when no key is published. Shell blocks get lightweight token highlighting, text is escaped and raw HTML is not passed through. Credentials and operator input paths are excluded from public releases.
 
 ## Public routes
 
@@ -27,14 +28,17 @@ All routes are served on the canonical `domain` only. Every hostname in `alias_d
 | Route | Behavior |
 | --- | --- |
 | `/` | Site title, help link and filing footer |
-| `/help` | Rendered `docs/help.md` |
+| `/help` | Rendered `docs/help.md`: tmux, Claude Code, Codex and their uninstall commands |
+| `/help2` | Complete help with SSH, Mihomo and Stash; not linked from the home page and without the filing footer |
 | `/ssh/<ssh_public_key_name>` | Selected public key; default name `key.pub` |
-| `/mihomo/install`, `/mihomo/sub`, `/mihomo/restart` | Client scripts |
+| `/mihomo/install`, `/mihomo/sub`, `/mihomo/restart`, `/mihomo/uninstall` | Client proxy scripts |
+| `/tmux/install`, `/tmux/uninstall` | Package-manager installation of tmux 3.2+ and removal with its data |
+| `/tmux/config` | Shared `~/.tmux.conf` contents |
 | `/claude/install`, `/codex/install` | Installers with verified download fallback |
 | `/claude/config` | Public JSON |
 | `/codex/config`, `/codex/models_1m` | Public TOML and model catalog |
 | `/codex/auth` | Script that writes credentials on the client |
-| `/claude/uninstall`, `/codex/uninstall`, `/mihomo/uninstall` | Client uninstall scripts |
+| `/claude/uninstall`, `/codex/uninstall` | Client uninstall scripts |
 | `/stash/upload0`–`7` | Upload scripts |
 | `/stash/download0`–`7` | Public GET/HEAD; signed PUT replaces content |
 | `/stash/upload`, `/stash/download` | Channel-0 aliases |
@@ -42,7 +46,7 @@ All routes are served on the canonical `domain` only. Every hostname in `alias_d
 | `/stash/challenge` | GET issues a signing challenge; HEAD checks availability |
 | `/stash/clear` | GET serves the script; signed POST clears all channels |
 
-Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Installer scripts use official sources first and a pinned, verified download fallback. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
+Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
 
 ## Codex preset and catalog
 

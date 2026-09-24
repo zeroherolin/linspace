@@ -1,6 +1,6 @@
 # linspace
 
-An HTTPS toolbox for SSH keys, Mihomo, Claude Code, Codex and eight public text channels.
+An HTTPS toolbox for SSH keys, Mihomo, tmux, Claude Code, Codex and eight public text channels.
 
 **Use an existing site:** open its `/help` page or read the [user guide](docs/usage.md). **Host your own:** follow the steps below.
 
@@ -54,11 +54,12 @@ The wizard saves `local/site.json`, which Git ignores. Enter keeps the current v
 | `ssh_public_key_name` | Published filename, such as `team.pub`; default `key.pub` |
 | `claude_settings_file` | Default `config/claude/settings.json` |
 | `codex_config_file` | Default `config/codex/config.toml` |
+| `tmux_config_file` | Default `config/tmux.conf`; served verbatim at `/tmux/config` |
 | `stash_public_key_files` | `auto` (JSON `null`): reuse the SSH key; JSON path array: separate keys; `[]`: disable writes |
 
 The wizard copies the SSH key into `local/keys/` and publishes it at `/ssh/<ssh_public_key_name>`. Relative paths resolve from the checkout; `~/` is expanded when configuring.
 
-Client settings are public. Known credential fields are rejected, but review the presets: Claude disables its sandbox, and Codex uses a relay with `danger-full-access`. Keep custom input files in `local/`. [Configuration template](config/site.example.json).
+Client settings are public. Known credential fields are rejected, but review the presets: Claude disables its sandbox, Codex uses a relay with `danger-full-access`, and clients apply the tmux file as-is. Keep custom input files in `local/`. [Configuration template](config/site.example.json).
 
 ### 4. Preview and deploy
 
@@ -81,7 +82,7 @@ Verification checks public HTTPS without changing channel data. If it fails, use
 
 ## Use
 
-The [user guide](docs/usage.md) covers SSH key import, Mihomo, Claude Code, Codex, Stash and uninstall. The site's `/help` page is built from [docs/help.md](docs/help.md). Installers reuse compatible existing clients and fall back to verified downloads when upstream access fails. Uninstall keeps Claude Code and Codex conversation history and user-authored files. Stash reads are public; writes use SSH signatures.
+The [user guide](docs/usage.md) covers SSH key import, Mihomo, tmux, Claude Code, Codex, Stash and uninstall. The site's `/help` page is built from [docs/help.md](docs/help.md); `/help2` adds the SSH, Mihomo and Stash sections from [docs/help2.md](docs/help2.md). Client installers reuse compatible existing clients and fall back to verified downloads when upstream access fails; tmux uses the host package manager. Uninstall keeps only Claude Code and Codex session records. Stash reads are public; writes use SSH signatures.
 
 ## Update
 
@@ -91,6 +92,6 @@ git pull --ff-only
 sudo ./linspace deploy
 ```
 
-Resolve local source edits before pulling; ignored `local/` files are kept. After reconfiguring, redeploy; clients download updated settings themselves.
+Resolve local source edits before pulling; ignored `local/` files are kept. After reconfiguring, redeploy; Claude Code and Codex clients download updated settings themselves, and tmux users download `/tmux/config` again.
 
 [Operations](docs/operations.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)

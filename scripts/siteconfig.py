@@ -14,8 +14,9 @@ from vendor import toml_parser
 tomllib = toml_parser()
 
 ROOT = Path(__file__).resolve().parents[1]
-FIELDS = ('domain', 'alias_domains', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'stash_public_key_files')
+FIELDS = ('domain', 'alias_domains', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'tmux_config_file', 'stash_public_key_files')
 MAX_ALIASES = 8
+MAX_TMUX_CONFIG = 64 * 1024
 
 
 def domain_name(value, internal=False):
@@ -125,7 +126,7 @@ def load(path, internal=False, root=ROOT):
         config[key] = value
     if not internal and not re.search(r'ICP.*\d.*号', config['icp_number'], re.I):
         raise ValueError('icp_number must contain your complete issued ICP filing number, including its site suffix')
-    for key, fallback in [('ssh_public_key_file', ''), ('claude_settings_file', 'config/claude/settings.json'), ('codex_config_file', 'config/codex/config.toml')]:
+    for key, fallback in [('ssh_public_key_file', ''), ('claude_settings_file', 'config/claude/settings.json'), ('codex_config_file', 'config/codex/config.toml'), ('tmux_config_file', 'config/tmux.conf')]:
         value = raw.get(key, fallback)
         if not isinstance(value, str):
             raise ValueError(f'{key} must be a file path')
@@ -163,6 +164,7 @@ def load(path, internal=False, root=ROOT):
     check_public_settings(codex_settings)
     _, catalog = codex_catalog.load_catalog()
     codex_catalog.validate_settings(codex_settings, catalog)
+    tmux_config(config, root)
     return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode(), codex
 
 
@@ -176,15 +178,36 @@ def stash_keys(config, published_key, root=ROOT):
     return sorted({' '.join(key.decode().split()[:2]) for key in keys})
 
 
-def page(config, template='config/index.html.in', body=None, title=None):
+def tmux_config(config, root=ROOT):
+    """Return the shared tmux configuration, which clients apply verbatim, after checking it is plain text."""
+    if not config['tmux_config_file']:
+        raise ValueError('tmux_config_file must point to a tmux configuration file')
+    path = Path(config['tmux_config_file']).expanduser()
+    data = (path if path.is_absolute() else root / path).read_bytes()
+    try:
+        text = data.decode('utf-8')
+    except UnicodeError as exc:
+        raise ValueError('tmux configuration must be UTF-8 text') from exc
+    if len(data) > MAX_TMUX_CONFIG or not text.strip() or any(ord(c) < 32 and c not in '\t\n' for c in text):
+        raise ValueError('tmux configuration must be non-empty text with LF line endings and no control characters, at most 64 KiB')
+    return data
+
+
+def page(config, template='config/index.html.in', body=None, title=None, icp_footer=True):
     """Fill an HTML template with escaped site values; body and title are pre-rendered HTML."""
     text = (ROOT / template).read_text(encoding='utf-8')
-    text = text.replace('@@SITE_NAME@@', html.escape(config['site_name'], quote=True))
-    text = text.replace('@@ICP_NUMBER@@', html.escape(config['icp_number'] or 'Internal test — not for public deployment', quote=True))
+    site_name = html.escape(config['site_name'], quote=True)
+    icp_number = html.escape(config['icp_number'] or 'Internal test — not for public deployment', quote=True)
+    text = text.replace('@@SITE_NAME@@', site_name)
+    text = text.replace('@@ICP_NUMBER@@', icp_number)
     if body is not None:
         text = text.replace('@@BODY@@', body)
     if title is not None:
         text = text.replace('@@TITLE@@', title)
+    footer = f'<a href="/">{site_name}</a>'
+    if icp_footer:
+        footer += f'\n<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">{icp_number}</a>'
+    text = text.replace('@@FOOTER@@', footer)
     if re.search(r'@@[A-Z_]+@@', text):
         raise ValueError(f'Unresolved template token in {template}')
     return text

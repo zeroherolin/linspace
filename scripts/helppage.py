@@ -1,4 +1,4 @@
-"""Render docs/help.md into the public /help page without passing raw HTML through."""
+"""Render the public help Markdown pages without passing raw HTML through."""
 import html
 import re
 from pathlib import Path
@@ -6,8 +6,11 @@ import siteconfig
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'docs/help.md'
+COMPLETE_SOURCE = ROOT / 'docs/help2.md'
 TEMPLATE = 'config/help.html.in'
 PLACEHOLDER_DOMAIN = 'your-domain.cn'
+PLACEHOLDER_KEY = 'your-key.pub'
+SSH_SECTION = 'SSH key'
 SHELL_LANGUAGES = {'bash', 'sh', 'shell', 'zsh'}
 
 INLINE_CODE = re.compile(r'`([^`\n]+)`')
@@ -18,6 +21,8 @@ FENCE = re.compile(r'^(```|~~~)\s*([A-Za-z0-9_+.-]*)\s*$')
 HEADING = re.compile(r'^(#{1,3})\s+(.+?)\s*#*$')
 BULLET = re.compile(r'^\s*[-*]\s+(.+)$')
 NUMBERED = re.compile(r'^\s*\d+[.)]\s+(.+)$')
+# One line pulls a level-2 section from another help source, so shared steps are written once.
+SECTION_INCLUDE = re.compile(r'^@@include:(docs/[A-Za-z0-9_.-]+\.md)#([^@\n]+)@@$', re.M)
 
 SHELL_WORD = re.compile(r'[^\s\'"|&;]+')
 # Shell builtins and the file commands that read as keywords in a setup snippet.
@@ -45,9 +50,14 @@ def markdown_inline(text):
 
 
 def plain_text(text):
-    """Strip the inline Markdown syntax for use in a <title>."""
+    """Strip the inline Markdown syntax for use in a <title> or section name."""
     text = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', text)
     return re.sub(r'[`*]', '', text).strip()
+
+
+def source_name(source):
+    source = Path(source)
+    return source.relative_to(ROOT).as_posix() if source.is_relative_to(ROOT) else str(source)
 
 
 def _span(text, kind=None):
@@ -116,7 +126,45 @@ def code_block(language, code):
     return f'<pre data-language="{language}"><code>{body}</code></pre>'
 
 
-def render_markdown(markdown):
+def split_sections(markdown):
+    """Split at level-2 headings outside code fences into (title, text) pairs; the preamble has title None."""
+    parts = [(None, [])]
+    fence = None
+    for line in markdown.splitlines():
+        stripped = line.rstrip()
+        opened = None if fence else FENCE.match(stripped)
+        if fence:
+            if stripped.startswith(fence):
+                fence = None
+        elif opened:
+            fence = opened.group(1)
+        else:
+            heading = HEADING.match(stripped)
+            if heading and len(heading.group(1)) == 2:
+                parts.append((plain_text(heading.group(2)), []))
+        parts[-1][1].append(line)
+    return [(title, '\n'.join(lines).strip('\n') + '\n') for title, lines in parts]
+
+
+def resolve_includes(markdown, source):
+    """Replace each include line with the named level-2 section of another help source."""
+    def section(match):
+        relative, title = match.group(1), match.group(2).strip()
+        text = (ROOT / relative).read_text(encoding='utf-8')
+        if SECTION_INCLUDE.search(text):
+            raise ValueError(f'{relative} must not include sections itself')
+        for name, body in split_sections(text):
+            if name == title:
+                return body
+        raise ValueError(f'{source_name(source)} includes a missing section: {relative}#{title}')
+    return SECTION_INCLUDE.sub(section, markdown)
+
+
+def drop_section(markdown, title):
+    return '\n'.join(body for name, body in split_sections(markdown) if name != title)
+
+
+def render_markdown(markdown, source=SOURCE):
     """Render headings, paragraphs, lists and fenced code; tables and raw HTML are not supported."""
     blocks = []
     paragraph = []
@@ -176,14 +224,23 @@ def render_markdown(markdown):
             continue
         paragraph.append(line)
     if fence:
-        raise ValueError(f'{SOURCE.relative_to(ROOT)} has an unclosed code fence')
+        raise ValueError(f'{source_name(source)} has an unclosed code fence')
     close_paragraph()
     close_list()
     return '\n'.join(blocks)
 
 
-def help_page(config, source=SOURCE):
-    markdown = Path(source).read_text(encoding='utf-8').replace(PLACEHOLDER_DOMAIN, config['domain'])
+def help_page(config, source=SOURCE, ssh_key_name=None, icp_footer=True):
+    """Render one help source; ssh_key_name fills the key placeholder and None removes the SSH section."""
+    source = Path(source)
+    markdown = resolve_includes(source.read_text(encoding='utf-8'), source)
+    if ssh_key_name is None:
+        markdown = drop_section(markdown, SSH_SECTION)
+        if PLACEHOLDER_KEY in markdown:
+            raise ValueError(f'{source_name(source)} uses {PLACEHOLDER_KEY} outside the "{SSH_SECTION}" section')
+    else:
+        markdown = markdown.replace(PLACEHOLDER_KEY, ssh_key_name)
+    markdown = markdown.replace(PLACEHOLDER_DOMAIN, config['domain'])
     title = next((plain_text(match.group(2)) for match in map(HEADING.match, markdown.splitlines())
                   if match and len(match.group(1)) == 1), 'Help')
-    return siteconfig.page(config, TEMPLATE, body=render_markdown(markdown), title=html.escape(title, quote=True))
+    return siteconfig.page(config, TEMPLATE, body=render_markdown(markdown, source), title=html.escape(title, quote=True), icp_footer=icp_footer)

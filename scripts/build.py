@@ -92,22 +92,27 @@ def build(config_path, output=None, internal=False):
         shutil.rmtree(output)
     release = output / 'linspace-site'
     release.mkdir(parents=True)
-    key_name = config['ssh_public_key_name']
-    values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{key_name}' if key else '', 'ALIAS_BLOCK': alias_block(config), **downloads.values()}
+    published_key = config['ssh_public_key_name'] if key else None
+    values = {'DOMAIN': config['domain'], 'SSH_ROUTE': f' /ssh/{published_key}' if published_key else '', 'ALIAS_BLOCK': alias_block(config), **downloads.values()}
     for client, title in [('claude', 'Claude Code'), ('codex', 'Codex')]:
         write(release, f'site/{client}/install', render('src/lifecycle/install.sh.in', {**values, 'CLIENT': client, 'CLIENT_NAME': title}))
     resources = json.loads((ROOT / 'config/downloads.json').read_text())['assets']
-    for client, title in [('claude', 'Claude Code'), ('codex', 'Codex'), ('mihomo', 'Mihomo')]:
+    for client, title in [('mihomo', 'Mihomo'), ('claude', 'Claude Code'), ('codex', 'Codex')]:
         hashes = {digest for name, entry in resources.items() if name.startswith(client + '-')
                   for digest in [entry['sha256'], *(part['sha256'] for part in entry['parts'])]}
         uninstall_values = {**values, 'CLIENT': client, 'CLIENT_NAME': title, 'CLIENT_CACHE_HASHES': ' '.join(sorted(hashes))}
-        uninstall_values['UNINSTALL_RETENTION'] = 'No proxy data is retained.' if client == 'mihomo' else 'Keeps conversation history and your own files (see the user guide).'
+        uninstall_values['UNINSTALL_RETENTION'] = {
+            'mihomo': 'No proxy data is retained.',
+            'claude': 'Keeps Claude Code session records only.',
+            'codex': 'Keeps Codex session records only.',
+        }[client]
         uninstall_values['UNINSTALL_BODY'] = render('src/lifecycle/mihomo.py' if client == 'mihomo' else 'src/lifecycle/clients.py', uninstall_values)
         write(release, f'site/{client}/uninstall', render('src/lifecycle/uninstall.sh.in', uninstall_values))
     for name, source in {
         'site/mihomo/install': 'src/mihomo/install.sh.in', 'site/mihomo/sub': 'src/mihomo/sub.sh.in',
-        'site/mihomo/restart': 'src/mihomo/restart.sh', 'site/codex/auth': 'src/codex/auth.sh.in',
-        'site/stash/clear': 'src/stash/clear.sh',
+        'site/mihomo/restart': 'src/mihomo/restart.sh',
+        'site/tmux/install': 'src/tmux/install.sh.in', 'site/tmux/uninstall': 'src/tmux/uninstall.sh.in',
+        'site/codex/auth': 'src/codex/auth.sh.in', 'site/stash/clear': 'src/stash/clear.sh',
         'config/Caddyfile': 'config/Caddyfile.in', 'config/stash.caddy.template': 'src/stash/stash.caddy.in',
         'service/stashd.py': 'src/stash/stashd.py', 'service/stashd.service': 'src/stash/stashd.service',
         'service/stashd.socket': 'src/stash/stashd.socket',
@@ -115,22 +120,25 @@ def build(config_path, output=None, internal=False):
         write(release, name, render(source, values))
     for channel in range(8):
         write(release, f'site/stash/upload{channel}', render('src/stash/upload.sh.in', values).replace('__CHANNEL__', str(channel)))
-    if key:
-        write(release, f'site/ssh/{key_name}', key)
+    if published_key:
+        write(release, f'site/ssh/{published_key}', key)
     write(release, 'site/claude/config', claude_settings)
     write(release, 'site/codex/config', codex_config)
     write(release, 'site/codex/models_1m', codex_models)
+    write(release, 'site/tmux/config', siteconfig.tmux_config(config))
     write(release, 'site/stash/keys', '\n'.join(stash_keys) + ('\n' if stash_keys else ''))
     write(release, 'config/stash.allowed_signers', ''.join(f'stash namespaces="linspace-stash@{config["domain"]}" {key}\n' for key in stash_keys))
     write(release, 'site/index.html', siteconfig.page(config))
-    write(release, 'site/help', helppage.help_page(config))
+    write(release, 'site/help', helppage.help_page(config, ssh_key_name=published_key))
+    # The complete page is not linked from the home page and carries only the site link in its footer.
+    write(release, 'site/help2', helppage.help_page(config, helppage.COMPLETE_SOURCE, ssh_key_name=published_key, icp_footer=False))
     for name in ('deploy.py', 'verify.py', 'linspace_console.py'):
         write(release, name, (ROOT / 'scripts' / name).read_bytes())
     write(release, 'install-caddy.sh', render('scripts/install-caddy.sh.in', values))
     write(release, 'README.md', (ROOT / 'docs/site-bundle.md').read_bytes())
     write(release, 'linspace', '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd -- "$(dirname -- "${BASH_SOURCE[0]}")"\nexec python3 -B deploy.py "$@"\n')
     (release / 'linspace').chmod(0o755)
-    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'alias_domains': config['alias_domains'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': key_name, 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
+    write(release, 'release.json', json.dumps({'format': 1, 'domain': config['domain'], 'alias_domains': config['alias_domains'], 'site_name': config['site_name'], 'icp_number': config['icp_number'], 'ssh_enabled': key is not None, 'ssh_public_key_name': config['ssh_public_key_name'], 'stash_auth': 'ssh-signature-v1', 'stash_key_count': len(stash_keys), 'internal_test': internal}, ensure_ascii=False, indent=2) + '\n')
     checksums(release)
     target = output / 'linspace-mihomo-target'
     shutil.copytree(release / 'site/mihomo', target / 'mihomo')

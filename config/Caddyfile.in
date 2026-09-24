@@ -5,7 +5,7 @@
     header Referrer-Policy "no-referrer"
     import /etc/caddy/linspace.d/stash.caddy
 
-    @html path / /help
+    @html path / /help /help2
     handle @html {
         header Content-Type "text/html; charset=utf-8"
         header Cache-Control "no-store"
@@ -13,7 +13,7 @@
         header X-Frame-Options "DENY"
         file_server
     }
-    @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/uninstall /mihomo/sub /mihomo/restart /claude/install /claude/uninstall /claude/config /codex/install /codex/uninstall /codex/config /codex/models_1m /codex/auth
+    @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/sub /mihomo/restart /mihomo/uninstall /tmux/install /tmux/config /tmux/uninstall /claude/install /claude/config /claude/uninstall /codex/install /codex/config /codex/models_1m /codex/auth /codex/uninstall
     handle @text {
         header Content-Type "text/plain; charset=utf-8"
         header Cache-Control "no-store"

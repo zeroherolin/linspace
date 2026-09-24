@@ -73,6 +73,7 @@ class ConfigurationTests(unittest.TestCase):
         default = root / 'config/codex/config.toml'
         default.parent.mkdir(parents=True, exist_ok=True)
         default.write_bytes((ROOT / 'config/codex/config.toml').read_bytes())
+        (root / 'config/tmux.conf').write_bytes((ROOT / 'config/tmux.conf').read_bytes())
         path = root / 'site.json'
         path.write_text(json.dumps(raw))
         return path
@@ -118,6 +119,26 @@ class ConfigurationTests(unittest.TestCase):
                 (root / 'invalid.toml').write_bytes(data)
                 with self.subTest(data=data), self.assertRaisesRegex(ValueError, 'valid UTF-8 TOML'):
                     siteconfig.load(self.config(root, codex_config_file='invalid.toml'), root=root)
+
+    def test_tmux_configuration_defaults_to_the_bundled_file_and_must_be_plain_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, _, _, _ = siteconfig.load(self.config(root), root=root)
+            self.assertEqual(config['tmux_config_file'], 'config/tmux.conf')
+            self.assertEqual(siteconfig.tmux_config(config, root), (ROOT / 'config/tmux.conf').read_bytes())
+            custom = root / 'shared.conf'
+            custom.write_bytes(b'# Shared\nset -g mouse on\n')
+            for value in ['shared.conf', str(custom)]:
+                with self.subTest(path=value):
+                    config, _, _, _ = siteconfig.load(self.config(root, tmux_config_file=value), root=root)
+                    self.assertEqual(siteconfig.tmux_config(config, root), custom.read_bytes())
+            for value in ['', 123, 'missing.conf']:
+                with self.subTest(path=value), self.assertRaises((ValueError, OSError)):
+                    siteconfig.load(self.config(root, tmux_config_file=value), root=root)
+            for data in [b'', b'  \n\n', b'\xff', b'set -g mouse on\r\n', b'set -g mouse on\x00', b'#' * (siteconfig.MAX_TMUX_CONFIG + 1)]:
+                custom.write_bytes(data)
+                with self.subTest(data=data[:16]), self.assertRaisesRegex(ValueError, 'tmux configuration'):
+                    siteconfig.load(self.config(root, tmux_config_file='shared.conf'), root=root)
 
     def test_saved_user_home_inputs_keep_their_source_after_account_change(self):
         with tempfile.TemporaryDirectory() as tmp:
