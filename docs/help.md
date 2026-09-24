@@ -25,7 +25,8 @@ Install the client, apply the shared settings, then start in your project. Use t
 ```sh
 # Install and configure
 curl -fsSL https://your-domain.cn/claude/install | bash && install -d -m 700 ~/.claude
-curl -fsSL https://your-domain.cn/claude/config -o ~/.claude/settings.json && chmod 600 ~/.claude/settings.json
+curl -fsSL https://your-domain.cn/claude/config -o ~/.claude/settings.json
+chmod 600 ~/.claude/settings.json
 export PATH="$HOME/.local/bin:$PATH"
 
 # Optional: relay credentials
