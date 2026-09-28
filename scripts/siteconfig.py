@@ -1,0 +1,224 @@
+"""Read user configuration as data; never source it as shell code."""
+import base64
+import html
+import ipaddress
+import json
+import re
+import struct
+from urllib.parse import urlsplit
+import subprocess
+from pathlib import Path
+import codex_catalog
+
+from vendor import toml_parser
+tomllib = toml_parser()
+
+ROOT = Path(__file__).resolve().parents[1]
+FIELDS = ('domain', 'alias_domains', 'site_name', 'icp_number', 'ssh_public_key_file', 'ssh_public_key_name', 'claude_settings_file', 'codex_config_file', 'tmux_config_file', 'stash_public_key_files', 'page_domain')
+MAX_ALIASES = 8
+MAX_TMUX_CONFIG = 64 * 1024
+
+
+def domain_name(value, internal=False):
+    if not isinstance(value, str) or value != value.strip() or any(c in value for c in '/:@*{}\\\n\r\t '):
+        raise ValueError('domain must be a hostname only, without https://, a port, or a path')
+    try:
+        domain = value.encode('idna').decode('ascii').lower()
+    except UnicodeError as exc:
+        raise ValueError('domain is not a valid DNS hostname') from exc
+    if len(domain) > 253 or '.' not in domain or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in domain.split('.')):
+        raise ValueError('domain must be a fully qualified DNS hostname')
+    try:
+        ipaddress.ip_address(domain)
+    except ValueError:
+        pass
+    else:
+        raise ValueError('Use a domain name, not an IP address')
+    reserved = domain in {'example.com', 'example.net', 'example.org'} or domain.endswith(('.example', '.invalid', '.test', '.localhost'))
+    if reserved and not internal:
+        raise ValueError('Replace the example domain with your resolved, ICP-filed domain')
+    return domain
+
+
+def alias_domains(value, domain, internal=False):
+    """Extra hostnames that redirect to the canonical domain, such as the www form named in a filing."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_ALIASES or any(not isinstance(item, str) for item in value):
+        raise ValueError(f'alias_domains must be an array of up to {MAX_ALIASES} hostnames, or be omitted')
+    aliases = []
+    for item in value:
+        alias = domain_name(item, internal)
+        if alias == domain:
+            raise ValueError('alias_domains must not repeat the canonical domain')
+        if alias in aliases:
+            raise ValueError('alias_domains must not contain duplicates')
+        aliases.append(alias)
+    return aliases
+
+
+def page_domain(value, domain, aliases, internal=False):
+    """Hostname that serves uploaded HTML pages. Their scripts run there, so it must be a separate origin."""
+    if value is None or value == '':
+        return None
+    hostname = domain_name(value, internal)
+    if hostname == domain or hostname in aliases:
+        raise ValueError('page_domain must be its own hostname, not the domain or one of alias_domains')
+    return hostname
+
+
+def public_key_name(value):
+    if not isinstance(value, str) or len(value) > 128 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.pub', value):
+        raise ValueError('ssh_public_key_name must be a filename such as key.pub or team.pub: ASCII letters, digits, dots, underscores and hyphens; at most 128 characters')
+    return value
+
+
+def public_key(data):
+    try:
+        text = data.decode('utf-8').strip()
+        parts = text.split()
+        allowed = {'ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521', 'sk-ssh-ed25519@openssh.com', 'sk-ecdsa-sha2-nistp256@openssh.com'}
+        if '\n' in text or len(parts) < 2 or parts[0] not in allowed or len(data) > 16384:
+            raise ValueError()
+        decoded = base64.b64decode(parts[1], validate=True)
+        length = struct.unpack('>I', decoded[:4])[0]
+        if decoded[4:4 + length].decode('ascii') != parts[0] or len(decoded) <= 4 + length:
+            raise ValueError()
+    except (ValueError, UnicodeError, struct.error) as exc:
+        raise ValueError('SSH file must contain one OpenSSH public key, never a private key or authorized_keys options') from exc
+    normalized = (text + '\n').encode()
+    checked = subprocess.run(['ssh-keygen', '-l', '-f', '-'], input=normalized, capture_output=True)
+    if checked.returncode:
+        raise ValueError('ssh-keygen could not validate the public key')
+    return normalized
+
+
+def check_public_settings(value, path=()):
+    """Reject common literal credential fields before they become public files."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = key.lower().replace('-', '_')
+            if path and path[-1] == 'env_http_headers':
+                continue  # Values here name environment variables, not header contents.
+            secret = normalized in {'api_key','auth_token','access_token','refresh_token','bearer_token','experimental_bearer_token','password','client_secret','authorization','proxy_authorization','x_api_key'} or normalized.endswith(('_api_key','_auth_token','_oauth_token','_access_token','_refresh_token','_client_secret'))
+            if secret and item not in ('', None, False):
+                raise ValueError('Public client settings contain a credential field: ' + '.'.join((*path, key)))
+            check_public_settings(item, (*path, key))
+    elif isinstance(value, list):
+        for item in value:
+            check_public_settings(item, path)
+    elif isinstance(value, str) and value.startswith(('http://','https://')):
+        try:
+            if urlsplit(value).username is not None:
+                raise ValueError('Public client settings contain credentials in a URL: ' + '.'.join(path))
+        except ValueError:
+            raise ValueError('Public client settings contain an invalid or credential-bearing URL: ' + '.'.join(path)) from None
+
+
+def load(path, internal=False, root=ROOT):
+    path = Path(path)
+    raw = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(raw, dict) or set(raw) - set(FIELDS):
+        raise ValueError('Unknown configuration fields; use config/site.example.json as the schema')
+    config = dict(raw)
+    config['domain'] = domain_name(raw.get('domain', ''), internal)
+    config['alias_domains'] = alias_domains(raw.get('alias_domains'), config['domain'], internal)
+    config['page_domain'] = page_domain(raw.get('page_domain'), config['domain'], config['alias_domains'], internal)
+    config['ssh_public_key_name'] = public_key_name(raw.get('ssh_public_key_name', 'key.pub'))
+    for key in ('site_name', 'icp_number'):
+        value = raw.get(key, '')
+        if not isinstance(value, str) or len(value) > 200 or any(ord(c) < 32 for c in value):
+            raise ValueError(f'{key} must be a single line of text, at most 200 characters')
+        value = value.strip()
+        if not value and not (internal and key == 'icp_number'):
+            raise ValueError(f'{key} is required')
+        if not internal and re.search(r'YOUR_[A-Z_]+|X{4,}|\b(?:REPLACE_ME|PLACEHOLDER)\b', value, re.I):
+            raise ValueError(f'Replace the placeholder in {key}')
+        config[key] = value
+    if not internal and not re.search(r'ICP.*\d.*号', config['icp_number'], re.I):
+        raise ValueError('icp_number must contain your complete issued ICP filing number, including its site suffix')
+    for key, fallback in [('ssh_public_key_file', ''), ('claude_settings_file', 'config/claude/settings.json'), ('codex_config_file', 'config/codex/config.toml'), ('tmux_config_file', 'config/tmux.conf')]:
+        value = raw.get(key, fallback)
+        if not isinstance(value, str):
+            raise ValueError(f'{key} must be a file path')
+        # Freeze user-home inputs when configure saves the profile, before sudo
+        # can resolve the same spelling against a different account's home.
+        config[key] = str(Path(value).expanduser()) if value.startswith('~') else value
+    key_data = None
+    if config['ssh_public_key_file']:
+        p = Path(config['ssh_public_key_file']).expanduser()
+        key_data = public_key((p if p.is_absolute() else root / p).read_bytes())
+    paths = raw.get('stash_public_key_files')
+    if paths is not None:
+        if not isinstance(paths, list) or len(paths) > 64 or any(not isinstance(p, str) or not p for p in paths):
+            raise ValueError('stash_public_key_files must be null (reuse the SSH key) or an array of up to 64 public key paths; [] disables writes')
+        paths = [str(Path(p).expanduser()) if p.startswith('~') else p for p in paths]
+    config['stash_public_key_files'] = paths
+    stash_keys(config, key_data, root)
+    p = Path(config['claude_settings_file']).expanduser()
+    if not config['claude_settings_file']:
+        raise ValueError('claude_settings_file must point to a JSON settings file')
+    settings = json.loads((p if p.is_absolute() else root / p).read_text())
+    if not isinstance(settings, dict):
+        raise ValueError('Claude settings must be a JSON object')
+    check_public_settings(settings)
+    if not config['codex_config_file']:
+        raise ValueError('codex_config_file must point to a TOML configuration file')
+    p = Path(config['codex_config_file']).expanduser()
+    codex = (p if p.is_absolute() else root / p).read_bytes()
+    if tomllib is None:
+        raise ValueError('The bundled TOML parser is unavailable; verify the checkout')
+    try:
+        codex_settings = tomllib.loads(codex.decode('utf-8'))
+    except (UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError('Codex configuration must be valid UTF-8 TOML') from exc
+    check_public_settings(codex_settings)
+    _, catalog = codex_catalog.load_catalog()
+    codex_catalog.validate_settings(codex_settings, catalog)
+    tmux_config(config, root)
+    return config, key_data, (json.dumps(settings, ensure_ascii=False, indent=2) + '\n').encode(), codex
+
+
+def stash_keys(config, published_key, root=ROOT):
+    paths = config.get('stash_public_key_files')
+    keys = [published_key] if paths is None and published_key else []
+    for value in paths or []:
+        path = Path(value)
+        keys.append(public_key((path if path.is_absolute() else root / path).read_bytes()))
+    # Comments and operator paths do not belong in the authorization protocol.
+    return sorted({' '.join(key.decode().split()[:2]) for key in keys})
+
+
+def tmux_config(config, root=ROOT):
+    """Return the shared tmux configuration, which clients apply verbatim, after checking it is plain text."""
+    if not config['tmux_config_file']:
+        raise ValueError('tmux_config_file must point to a tmux configuration file')
+    path = Path(config['tmux_config_file']).expanduser()
+    data = (path if path.is_absolute() else root / path).read_bytes()
+    try:
+        text = data.decode('utf-8')
+    except UnicodeError as exc:
+        raise ValueError('tmux configuration must be UTF-8 text') from exc
+    if len(data) > MAX_TMUX_CONFIG or not text.strip() or any(ord(c) < 32 and c not in '\t\n' for c in text):
+        raise ValueError('tmux configuration must be non-empty text with LF line endings and no control characters, at most 64 KiB')
+    return data
+
+
+def page(config, template='config/index.html.in', body=None, title=None, icp_footer=True):
+    """Fill an HTML template with escaped site values; body and title are pre-rendered HTML."""
+    text = (ROOT / template).read_text(encoding='utf-8')
+    site_name = html.escape(config['site_name'], quote=True)
+    icp_number = html.escape(config['icp_number'] or 'Internal test — not for public deployment', quote=True)
+    text = text.replace('@@SITE_NAME@@', site_name)
+    text = text.replace('@@ICP_NUMBER@@', icp_number)
+    if body is not None:
+        text = text.replace('@@BODY@@', body)
+    if title is not None:
+        text = text.replace('@@TITLE@@', title)
+    footer = f'<a href="/">{site_name}</a>'
+    if icp_footer:
+        footer += f'\n<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">{icp_number}</a>'
+    text = text.replace('@@FOOTER@@', footer)
+    if re.search(r'@@[A-Z_]+@@', text):
+        raise ValueError(f'Unresolved template token in {template}')
+    return text

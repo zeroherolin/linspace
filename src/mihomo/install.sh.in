@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+@@include:src/common/ui.sh@@
+# Install a pinned mihomo version for ordinary background execution.
+# Usage: curl -fsSL https://@@DOMAIN@@/mihomo/install | bash
+main() (
+    set -Eeuo pipefail
+    export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    umask 077
+    ROOT=/var/lib/mihomo
+    CONFIG=/etc/mihomo/config.yaml
+    BIN=/usr/local/bin/mihomo
+    LIB=/usr/local/lib/linspace-mihomo
+    GEO_SHA=@@GEO_SHA@@
+    LINSPACE_DOWNLOAD_CACHE=/var/cache/linspace-mihomo
+    GEO_FILE=''
+    fail() { linspace_log ERROR "$*"; exit 1; }
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --geoip-file) [[ $# -ge 2 ]] || fail 'Missing --geoip-file value.'; GEO_FILE=$2; shift 2 ;;
+            -h|--help) printf 'Usage: bash install [--geoip-file /path/to/GeoIP.dat]\n'; exit 0 ;;
+            *) fail "Unknown argument: $1" ;;
+        esac
+    done
+    [[ $EUID -eq 0 && -f /etc/debian_version ]] || fail 'Run as root on Debian/Ubuntu.'
+    if [[ -n "$GEO_FILE" ]]; then GEO_FILE=$(realpath -e "$GEO_FILE"); fi
+    if [[ -e /etc/systemd/system/mihomo.service || -e /etc/mihomo/supervisord.conf ]]; then
+        fail 'A supervised installation exists. Use /mihomo/uninstall before switching to these background scripts.'
+    fi
+    if [[ -e "$BIN" || -e "$CONFIG" || -e "$LIB/managed" ]]; then
+        grep -qx 'linspace-mihomo-background-v1' "$LIB/managed" 2>/dev/null || fail 'An unmanaged installation exists. Use /mihomo/uninstall before switching to this installer.'
+    fi
+    [[ ! -L "$ROOT" && ! -L "$LIB" && ! -L /etc/mihomo ]] || fail 'Managed directories must not be symbolic links.'
+    case "$(uname -m)" in
+        x86_64) ARCH=amd64-v1 ;;
+        aarch64|arm64) ARCH=arm64 ;;
+        *) fail 'Only x86_64 and ARM64 are supported.' ;;
+    esac
+    while IFS= read -r key; do unset "$key"; done < <(compgen -v CLASH_)
+    for command in curl gzip tar sha256sum flock setpriv useradd getent timeout realpath; do
+        command -v "$command" >/dev/null || fail "Missing base-system prerequisite: $command"
+    done
+@@include:src/common/download.sh.in@@
+    linspace_python 9 || fail 'Could not prepare Python.'
+@@include:src/mihomo/lock.sh@@
+    linspace_mihomo_lock || fail 'Another installation or update is running.'
+    if ! id mihomo >/dev/null 2>&1; then
+        useradd --system --user-group --home-dir /var/lib/mihomo --shell /usr/sbin/nologin mihomo
+    fi
+    [[ $(id -u mihomo) -ne 0 && $(id -gn mihomo) == mihomo && $(getent passwd mihomo | cut -d: -f6-7) == /var/lib/mihomo:/usr/sbin/nologin ]] || fail 'The existing mihomo account is not a dedicated service account.'
+    install -d -o mihomo -g mihomo -m 700 "$ROOT"
+    install -d -o root -g mihomo -m 750 /etc/mihomo
+    install -d -m 755 "$LIB" /usr/local/bin
+    WORK=$(mktemp -d "$LIB/.install.XXXXXX")
+    CHANGED=0
+    WAS_ACTIVE=0
+    TARGETS=() EXISTED=()
+    if [[ -f "$LIB/process.py" ]]; then
+        "$LINSPACE_PYTHON" -I "$LIB/process.py" is-active && WAS_ACTIVE=1
+    fi
+    atomic_install() {
+        local source=$1 target=$2 mode=$3 temporary
+        temporary=$(mktemp "$(dirname "$target")/.new.XXXXXX")
+        if install -m "$mode" "$source" "$temporary" && mv -f "$temporary" "$target"; then return 0; fi
+        rm -f "$temporary"
+        return 1
+    }
+    publish() {
+        local target=$1 source=$2 mode=$3 index
+        [[ ! -L "$target" ]] || fail 'Managed files must not be symbolic links.'
+        index=${#TARGETS[@]}
+        if [[ -e "$target" ]]; then cp -p "$target" "$WORK/backup-$index"; EXISTED+=(1); else EXISTED+=(0); fi
+        TARGETS+=("$target")
+        atomic_install "$source" "$target" "$mode"
+    }
+    cleanup() {
+        local rc=$? ok=1 i temporary
+        trap - EXIT
+        set +e
+        if [[ $CHANGED -eq 1 ]]; then
+            [[ ! -f "$LIB/process.py" ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" stop || ok=0
+            for ((i=${#TARGETS[@]}-1; i>=0; i--)); do
+                if [[ ${EXISTED[i]} == 1 ]]; then
+                    temporary=$(mktemp "$(dirname "${TARGETS[i]}")/.restore.XXXXXX")
+                    cp -p "$WORK/backup-$i" "$temporary" && mv -f "$temporary" "${TARGETS[i]}" || ok=0
+                else
+                    rm -f "${TARGETS[i]}" || ok=0
+                fi
+            done
+            [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start || ok=0
+            [[ $ok -eq 0 ]] || linspace_log WARN 'Installation failed. Previous files and process state were restored.'
+        fi
+        if [[ $ok -eq 1 ]]; then rm -rf "$WORK"; else linspace_log ERROR "Rollback incomplete; backup: $WORK"; fi
+        exit "$rc"
+    }
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    verify() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
+    linspace_asset_info "mihomo-$ARCH"
+    ENGINE_RAW_SHA=$ASSET_RAW_SHA
+    linspace_asset "mihomo-$ARCH" "$WORK/mihomo.gz" || fail 'Engine download failed.'
+    gzip -dc "$WORK/mihomo.gz" > "$WORK/mihomo"
+    verify "$ENGINE_RAW_SHA" "$WORK/mihomo" || fail 'The extracted engine checksum does not match.'
+    chmod 755 "$WORK/mihomo"
+    "$WORK/mihomo" -v > "$WORK/version.log" 2>&1 || fail 'The Mihomo package cannot run on this system.'
+    [[ $(cat "$WORK/version.log") == *"@@MIHOMO_VERSION@@"* ]] || fail 'The Mihomo version does not match the download manifest.'
+    if [[ -n "$GEO_FILE" ]]; then
+        cp -- "$GEO_FILE" "$WORK/GeoIP.dat"
+    else
+        linspace_asset geoip "$WORK/GeoIP.dat.gz" || fail 'GeoIP download failed.'
+        gzip -dc "$WORK/GeoIP.dat.gz" > "$WORK/GeoIP.dat"
+    fi
+    verify "$GEO_SHA" "$WORK/GeoIP.dat" || fail 'The GeoIP checksum does not match the pinned snapshot.'
+    cat > "$WORK/baseline.yaml" <<'BASELINE_YAML'
+@@include:src/mihomo/baseline.yaml@@
+BASELINE_YAML
+    cat > "$WORK/process.py" <<'PROCESS_PY'
+@@include:src/mihomo/process.py@@
+PROCESS_PY
+    cat > "$WORK/run-mihomo.sh" <<'RUNNER_SH'
+@@include:src/mihomo/run-mihomo.sh@@
+RUNNER_SH
+    cat > "$WORK/LICENSE.mihomo" <<'MIHOMO_LICENSE'
+@@include:vendor/notices/LICENSE.mihomo@@
+MIHOMO_LICENSE
+    cat > "$WORK/SOURCE.mihomo" <<'MIHOMO_SOURCE'
+Unmodified Mihomo @@MIHOMO_VERSION@@, licensed under GPL-3.0.
+Corresponding source and notices: @@ASSET_SOURCE@@
+MIHOMO_SOURCE
+    "$LINSPACE_PYTHON" -I - "$WORK/vendor.zip" <<'VENDOR_PY'
+import base64, pathlib, sys
+pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode('@@PYYAML_ZIP@@'))
+VENDOR_PY
+    printf '#!/bin/sh\nexec %s -I "$@"\n' "$LINSPACE_PYTHON" > "$WORK/python"
+    printf '%s  %s\n' "$GEO_SHA" "$ROOT/GeoIP.dat" > "$WORK/geoip.sha256"
+    printf 'linspace-mihomo-background-v1\n' > "$WORK/managed"
+    if [[ -f "$CONFIG" ]]; then
+        mkdir "$WORK/check"
+        cp "$CONFIG" "$ROOT/proxies.yaml" "$WORK/check/"
+        cp "$WORK/GeoIP.dat" "$WORK/check/GeoIP.dat"
+        timeout 120 "$WORK/mihomo" -t -d "$WORK/check" > "$WORK/check.log" 2>&1 || fail 'The existing configuration is invalid.'
+    fi
+    CHANGED=1
+    [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" stop
+    publish "$BIN" "$WORK/mihomo" 755
+    publish "$ROOT/GeoIP.dat" "$WORK/GeoIP.dat" 600
+    chown mihomo:mihomo "$ROOT/GeoIP.dat"
+    publish "$LIB/baseline.yaml" "$WORK/baseline.yaml" 644
+    publish "$LIB/geoip.sha256" "$WORK/geoip.sha256" 644
+    publish "$LIB/run-mihomo.sh" "$WORK/run-mihomo.sh" 755
+    publish "$LIB/managed" "$WORK/managed" 644
+    publish "$LIB/process.py" "$WORK/process.py" 644
+    publish "$LIB/vendor.zip" "$WORK/vendor.zip" 644
+    publish "$LIB/python" "$WORK/python" 755
+    publish "$LIB/LICENSE.mihomo" "$WORK/LICENSE.mihomo" 644
+    publish "$LIB/SOURCE.mihomo" "$WORK/SOURCE.mihomo" 644
+    [[ $WAS_ACTIVE -eq 0 ]] || "$LINSPACE_PYTHON" -I "$LIB/process.py" start
+    CHANGED=0
+    linspace_log OK 'Installed Mihomo @@MIHOMO_VERSION@@'
+    linspace_log INFO 'Next: import a subscription with /mihomo/sub. Use /mihomo/restart after reboot.'
+)
+main "$@"

@@ -1,0 +1,26 @@
+@@ALIAS_BLOCK@@@@DOMAIN@@ {
+    root * /srv/linspace/current
+    header X-Content-Type-Options "nosniff"
+    header Strict-Transport-Security "max-age=31536000"
+    header Referrer-Policy "no-referrer"
+    import /etc/caddy/linspace.d/stash.caddy
+
+    @html path / /help /help2
+    handle @html {
+        header Content-Type "text/html; charset=utf-8"
+        header Cache-Control "no-store"
+        header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        header X-Frame-Options "DENY"
+        file_server
+    }
+    @text path@@SSH_ROUTE@@ /mihomo/install /mihomo/sub /mihomo/restart /mihomo/uninstall /tmux/install /tmux/config /tmux/uninstall /claude/install /claude/config /claude/uninstall /codex/install /codex/config /codex/models_1m /codex/auth /codex/uninstall
+    handle @text {
+        header Content-Type "text/plain; charset=utf-8"
+        header Cache-Control "no-store"
+        file_server
+    }
+    handle {
+        respond "Not found" 404
+    }
+}
+@@PAGE_BLOCK@@

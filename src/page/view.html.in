@@ -1,0 +1,16 @@
+[[linspace: readFile (placeholder "http.regexp.page.1") ]]
+<footer id="linspace-filing" style="all:initial;display:block;box-sizing:border-box;width:100%;margin:0;padding:16px;text-align:center;font:13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;color:inherit;opacity:.7"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="all:unset;color:inherit;cursor:pointer">@@ICP_NUMBER@@</a></footer>
+<script>
+(function () {
+  // A flex or grid body would place the notice beside the content; keep it below the page instead.
+  var notice = document.getElementById('linspace-filing');
+  function place() {
+    var body = document.body;
+    if (notice && body && notice.parentNode === body && /flex|grid/.test(getComputedStyle(body).display)) {
+      document.documentElement.appendChild(notice);
+    }
+  }
+  place();
+  addEventListener('load', place);
+})();
+</script>

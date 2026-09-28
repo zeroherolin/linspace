@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+"""Install a built linspace release on one Debian/Ubuntu host."""
+import sys
+# A verified release must not gain generated Python cache files when executed.
+sys.dont_write_bytecode = True
+from linspace_console import linspace_log
+import argparse
+import datetime
+import fcntl
+import fnmatch
+import grp
+import hashlib
+import json
+import os
+import pwd
+import re
+import secrets
+import shlex
+import shutil
+import subprocess
+import tempfile
+import time
+from contextlib import contextmanager
+from pathlib import Path
+import verify
+
+MAIN = Path('/etc/caddy/Caddyfile')
+SITE = Path('/etc/caddy/sites-enabled/linspace.caddy')
+FRAGMENT = Path('/etc/caddy/linspace.d/stash.caddy')
+LEGACY_TOKEN = Path('/etc/linspace/stash-token')
+SIGNERS = Path('/usr/local/lib/stashd/allowed_signers')
+CURRENT = Path('/srv/linspace/current')
+STATE = Path('/var/lib/linspace/state.json')
+LOCK = Path('/var/lib/linspace/deploy.lock')
+IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
+# When linspace owns the whole Caddyfile it also sets server-wide request deadlines,
+# so a trickled upload cannot hold connections open. Other sites keep their own file.
+MARKER = '# Managed by linspace. Edit sites-enabled/linspace.caddy through the deployer.'
+GLOBAL_OPTIONS = '{\n    servers {\n        timeouts {\n            read_header 10s\n            read_body 60s\n        }\n    }\n}\n'
+MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stashd/stashd.py'), Path('/etc/systemd/system/stashd.service'), Path('/etc/systemd/system/stashd.socket'), SIGNERS]
+
+
+def owned_main():
+    return MARKER + '\n' + GLOBAL_OPTIONS + IMPORT + '\n'
+
+
+@contextmanager
+def deployment_lock():
+    if LOCK.parent.is_symlink() or LOCK.is_symlink():
+        raise ValueError('Deployment lock and its directory must not be symlinks')
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK.open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another deployment or rollback is running; retry after it finishes.') from None
+        yield
+
+
+def run(args, **kwargs):
+    # Subprocess output is diagnostic detail, not the normal deployment UI.
+    if not kwargs.get('capture_output'):
+        kwargs.setdefault('stdout', subprocess.PIPE)
+        kwargs.setdefault('stderr', subprocess.PIPE)
+    result = subprocess.run([str(a) for a in args], **kwargs)
+    if result.returncode:
+        detail = result.stderr or result.stdout or ''
+        if isinstance(detail, bytes):
+            detail = detail.decode('utf-8', errors='replace')
+        if detail:
+            linspace_log('ERROR', '\n'.join(detail.splitlines()[-20:]))
+        result.check_returncode()
+    return result
+
+
+def stop_writer():
+    """Stop existing writer units; a fresh host has neither unit yet."""
+    units = []
+    for unit in ('stashd.service', 'stashd.socket'):
+        state = run(['systemctl', 'show', '--property=LoadState', '--value', unit],
+                    text=True, capture_output=True).stdout.strip()
+        if not state:
+            raise RuntimeError(f'Cannot determine whether {unit} is installed')
+        if state != 'not-found':
+            units.append(unit)
+    if units:
+        run(['systemctl', 'stop', *units], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def atomic(path, data, mode=0o644, gid=0):
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f'Refusing to replace symlink: {path}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.linspace-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, mode)
+        os.chown(temporary, 0, gid)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def swap_link(target):
+    temporary = CURRENT.parent / ('.current-' + secrets.token_hex(6))
+    try:
+        temporary.symlink_to(target)
+        os.replace(temporary, CURRENT)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def checked_release(release):
+    release = release.resolve()
+    manifest = release / 'SHA256SUMS'
+    expected = set()
+    for line in manifest.read_text().splitlines():
+        sha, relative = line.split('  ', 1)
+        path = release / relative
+        if not re.fullmatch('[0-9a-f]{64}', sha) or path.is_symlink() or not path.resolve().is_relative_to(release) or not path.is_file():
+            raise ValueError('Unsafe release manifest entry')
+        if relative in expected or hashlib.sha256(path.read_bytes()).hexdigest() != sha:
+            raise ValueError(f'Release checksum mismatch: {relative}')
+        expected.add(relative)
+    actual = set()
+    for path in release.rglob('*'):
+        if path.is_symlink():
+            raise ValueError(f'Release contains symlink: {path}')
+        # Interpreter caches from an earlier tool run are not release content.
+        if '__pycache__' in path.parts:
+            continue
+        if path.is_file() and path != manifest:
+            actual.add(path.relative_to(release).as_posix())
+    if actual != expected:
+        raise ValueError('Release contains missing or unlisted files')
+    meta = json.loads((release / 'release.json').read_text())
+    hostnames = [meta.get('domain'), *meta.get('alias_domains', [])] + ([meta['page_domain']] if meta.get('page_domain') is not None else [])
+    if meta.get('format') != 1 or not isinstance(meta.get('alias_domains', []), list) or any(not isinstance(h, str) or not re.fullmatch(r'[a-z0-9.-]+', h) for h in hostnames):
+        raise ValueError('Unsupported release metadata')
+    return meta, hashlib.sha256(manifest.read_bytes()).hexdigest()[:20]
+
+
+def shell_scripts(release):
+    """Every Bash program in a release, found by its shebang so new scripts need no list update."""
+    return [path for path in sorted(release.rglob('*')) if path.is_file() and path.read_bytes().startswith(b'#!/usr/bin/env bash')]
+
+
+def merged_main(text, domain, fresh=False, adopt=False, aliases=(), page_domain=None):
+    stripped = text.strip()
+    # Files linspace wrote itself (marker, or the earlier import-only form) are upgraded in place.
+    if fresh or not stripped or stripped == IMPORT or stripped.startswith(MARKER):
+        return owned_main()
+    depth = 0
+    for line in text.splitlines():
+        parts = shlex.split(line, comments=True)
+        if depth == 0 and len(parts) == 2 and parts[0] == 'import':
+            pattern = str((MAIN.parent / parts[1]).absolute())
+            if fnmatch.fnmatchcase(str(SITE), pattern):
+                return text
+        depth += parts.count('{') - parts.count('}')
+    # The managed site file serves these hostnames too; another block for them would conflict.
+    for hostname, field in [*((alias, 'alias_domains') for alias in aliases), *([(page_domain, 'page_domain')] if page_domain else [])]:
+        if re.search(r'(?m)^\s*' + re.escape(hostname) + r'\s*[,{]', text):
+            raise ValueError(f'{hostname} already has a site block in the Caddyfile. Remove it or drop it from {field}.')
+    if re.search(r'(?m)^\s*' + re.escape(domain) + r'\s*\{', text):
+        # Adopt only the project's previous single-site layout. Other sites require manual integration.
+        if adopt and stripped.startswith(domain + ' {') and 'root * /srv/linspace' in stripped:
+            depth = 0
+            end = None
+            for i, char in enumerate(stripped):
+                depth += (char == '{') - (char == '}')
+                if char == '}' and depth == 0:
+                    end = i
+                    break
+            if end == len(stripped) - 1:
+                return owned_main()
+        raise ValueError('This domain already has a site block. Integrate the managed import manually, or use --adopt-existing for the previous single-site linspace layout.')
+    # Another site owns this file: add only the import. Global options belong to its operator.
+    return text.rstrip() + '\n\n' + IMPORT + '\n'
+
+
+def snapshot(directory):
+    directory.mkdir(parents=True, mode=0o700)
+    os.chmod(directory, 0o700)
+    entries = []
+    for path in MANAGED:
+        if path.is_symlink():
+            raise ValueError(f'Managed configuration must not be a symlink: {path}')
+        item = {'path': str(path), 'exists': path.exists()}
+        if path.exists():
+            info = path.stat()
+            item.update(mode=info.st_mode & 0o777, gid=info.st_gid, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            shutil.copyfile(path, directory / str(len(entries)))
+            os.chmod(directory / str(len(entries)), 0o600)
+        entries.append(item)
+    state = {'entries': entries, 'current': os.readlink(CURRENT) if CURRENT.is_symlink() else None,
+             'caddy_active': subprocess.run(['systemctl', 'is-active', '--quiet', 'caddy']).returncode == 0,
+             'stash_active': subprocess.run(['systemctl', 'is-active', '--quiet', 'stashd.socket']).returncode == 0,
+             'stash_enabled': subprocess.run(['systemctl', 'is-enabled', '--quiet', 'stashd.socket'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0}
+    (directory / 'snapshot.json').write_text(json.dumps(state, indent=2) + '\n')
+    return state
+
+
+def restore(directory):
+    state = json.loads((directory / 'snapshot.json').read_text())
+    paths = {item['path'] for item in state['entries']}
+    current_paths = {str(path) for path in MANAGED}
+    if paths not in (current_paths, current_paths - {str(SIGNERS)}) or len(paths) != len(state['entries']):
+        raise ValueError('Backup does not describe exactly the managed files')
+    for index, item in enumerate(state['entries']):
+        if item['exists'] and hashlib.sha256((directory / str(index)).read_bytes()).hexdigest() != item['sha256']:
+            raise ValueError('Backup checksum mismatch; no services changed')
+    if state['current'] is not None:
+        target = Path(state['current'])
+        if target.is_absolute() or '..' in target.parts or not target.parts or target.parts[0] != 'releases' or not (CURRENT.parent / target).is_dir():
+            raise ValueError('The previous public release is missing or invalid; no services changed')
+    stop_writer()
+    for index, item in enumerate(state['entries']):
+        path = Path(item['path'])
+        if path not in MANAGED:
+            raise ValueError('Invalid backup path')
+        if item['exists']:
+            atomic(path, (directory / str(index)).read_bytes(), item['mode'], item['gid'])
+        else:
+            path.unlink(missing_ok=True)
+    if str(SIGNERS) not in paths and SIGNERS in MANAGED:
+        SIGNERS.unlink(missing_ok=True)
+    if state['current'] is not None:
+        swap_link(state['current'])
+    else:
+        CURRENT.unlink(missing_ok=True)
+    run(['systemctl', 'daemon-reload'])
+    if state['stash_enabled']:
+        run(['systemctl', 'enable', 'stashd.socket'], stdout=subprocess.DEVNULL)
+    else:
+        subprocess.run(['systemctl', 'disable', 'stashd.socket'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Restore the HTTP authentication boundary before starting a legacy writer.
+    if state['caddy_active']:
+        run(['caddy', 'validate', '--config', MAIN], stdout=subprocess.DEVNULL)
+        run(['systemctl', 'reload', 'caddy'])
+    else:
+        run(['systemctl', 'stop', 'caddy'])
+    if state['stash_active']:
+        run(['systemctl', 'start', 'stashd.socket'])
+    linspace_log('OK', f'Restored {directory}; Stash channel data was not changed.')
+
+
+def apply(release, args):
+    meta, release_id = checked_release(release)
+    if meta.get('stash_auth') != 'ssh-signature-v1':
+        raise ValueError('Rebuild this release for SSH signature authentication; use rollback to restore a legacy installation')
+    if meta['internal_test'] and not args.internal_test:
+        raise ValueError('An internal-test build requires --internal-test; rebuild with filed site details for production')
+    linspace_log('STEP', f'Deploy {meta["domain"]}' + (' (+ ' + ', '.join(meta['alias_domains']) + ')' if meta.get('alias_domains') else ''))
+    linspace_log('INFO', f'Release {release_id}; {meta["stash_key_count"]} authorized Stash key(s)' + (f'; pages on {meta["page_domain"]}' if meta.get('page_domain') else ''))
+    if args.dry_run:
+        linspace_log('INFO', 'Plan: validate, install Caddy if needed, back up, activate, reload and verify HTTPS. No host changes made.')
+        return
+    if os.geteuid() != 0 or not Path('/etc/debian_version').exists() or not Path('/run/systemd/system').is_dir():
+        raise ValueError('Deployment requires root on Debian/Ubuntu with a running systemd. Use sudo ./linspace deploy.')
+    os.umask(0o022)
+    # Syntax and checksums are checked before installing packages or changing services.
+    for script in shell_scripts(release):
+        run(['bash', '-n', script])
+    compile((release / 'service/stashd.py').read_text(), 'stashd.py', 'exec')
+    if shutil.which('curl') is None or shutil.which('ssh-keygen') is None:
+        raise ValueError('Install the documented curl and OpenSSH prerequisites before deployment.')
+    # Serialize host state reads, package installation, activation and verification
+    # with rollback, so every decision uses the state protected by this lock.
+    with deployment_lock():
+        for parent in ['/srv/linspace', '/etc/linspace', '/var/lib/linspace', '/usr/local/lib/stashd', '/etc/caddy/sites-enabled', '/etc/caddy/linspace.d']:
+            if Path(parent).is_symlink():
+                raise ValueError(f'Refusing managed symlink directory: {parent}')
+        if CURRENT.is_symlink() and (not CURRENT.is_dir() or not CURRENT.resolve().is_relative_to(Path('/srv/linspace/releases'))):
+            raise ValueError('The active release symlink must point to an existing managed release')
+        if CURRENT.exists() and not CURRENT.is_symlink():
+            raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
+        fresh_caddy = shutil.which('caddy') is None
+        run(['bash', release / 'install-caddy.sh'])
+        version = run(['caddy', 'version'], text=True, capture_output=True).stdout
+        match = re.search(r'v(\d+)\.(\d+)\.(\d+)', version)
+        if not match or tuple(map(int, match.groups())) < (2, 10, 0):
+            raise ValueError('Caddy 2.10 or later is required. Upgrade the existing Caddy package before deploying.')
+        caddy_gid = grp.getgrnam('caddy').gr_gid
+        if SITE.exists() and not STATE.exists():
+            raise ValueError(f'{SITE} already exists without managed state. Inspect that file before assigning it to this installation.')
+        if STATE.exists() and json.loads(STATE.read_text()).get('format') != 1:
+            raise ValueError('Existing linspace state has an unsupported format')
+        if STATE.exists():
+            previous = json.loads(STATE.read_text()).get('backup')
+            if isinstance(previous, str) and not Path(previous).is_dir():
+                linspace_log('WARN', f'The backup recorded by the previous deployment is missing: {previous}. Rollback to that state is no longer possible.')
+        main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing, aliases=meta.get('alias_domains', []), page_domain=meta.get('page_domain'))
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
+        backup = Path('/var/backups/linspace') / stamp
+        snapshot(backup)
+        linspace_log('INFO', f'Backup: {backup}')
+        try:
+            try:
+                account = pwd.getpwnam('stash')
+                if account.pw_uid == 0 or grp.getgrgid(account.pw_gid).gr_name != 'stash' or account.pw_dir != '/var/lib/stashd' or not account.pw_shell.endswith('/nologin'):
+                    raise ValueError('Existing stash account is not a dedicated service account')
+            except KeyError:
+                run(['useradd', '--system', '--user-group', '--home-dir', '/var/lib/stashd', '--no-create-home', '--shell', '/usr/sbin/nologin', 'stash'])
+            public_release = Path('/srv/linspace/releases') / release_id
+            public_release.parent.mkdir(parents=True, exist_ok=True)
+            if public_release.is_symlink():
+                raise ValueError('Release directories must not be symlinks')
+            if public_release.exists():
+                actual = {p.relative_to(public_release): p.read_bytes() for p in public_release.rglob('*') if p.is_file()}
+                wanted = {p.relative_to(release / 'site'): p.read_bytes() for p in (release / 'site').rglob('*') if p.is_file()}
+                if actual != wanted or any(p.is_symlink() for p in public_release.rglob('*')):
+                    raise ValueError('Existing release directory differs from its immutable build')
+            else:
+                # A failed copy must not leave a partial directory under an immutable release ID.
+                with tempfile.TemporaryDirectory(prefix='.staging-', dir=public_release.parent) as temporary:
+                    staged = Path(temporary) / 'site'
+                    shutil.copytree(release / 'site', staged)
+                    for path in [staged, *staged.rglob('*')]:
+                        path.chmod(0o755 if path.is_dir() else 0o644)
+                    os.replace(staged, public_release)
+            # Never pair the new proxy routes with the old unauthenticated writer.
+            linspace_log('STEP', 'Activate configuration and services')
+            stop_writer()
+            atomic(SITE, (release / 'config/Caddyfile').read_bytes())
+            atomic(FRAGMENT, (release / 'config/stash.caddy.template').read_bytes(), 0o640, caddy_gid)
+            atomic(MAIN, main_text.encode())
+            atomic(SIGNERS, (release / 'config/stash.allowed_signers').read_bytes())
+            for name, destination in [('stashd.py', '/usr/local/lib/stashd/stashd.py'), ('stashd.service', '/etc/systemd/system/stashd.service'), ('stashd.socket', '/etc/systemd/system/stashd.socket')]:
+                atomic(Path(destination), (release / 'service' / name).read_bytes())
+            # The snapshot retains the old secret solely for an explicit rollback.
+            LEGACY_TOKEN.unlink(missing_ok=True)
+            swap_link('releases/' + release_id)
+            run(['caddy', 'validate', '--config', MAIN], stdout=subprocess.DEVNULL)
+            run(['systemd-analyze', 'verify', '/etc/systemd/system/stashd.socket', '/etc/systemd/system/stashd.service'], stdout=subprocess.DEVNULL)
+            run(['systemctl', 'daemon-reload'])
+            run(['systemctl', 'enable', '--now', 'caddy'], stdout=subprocess.DEVNULL)
+            run(['systemctl', 'reload', 'caddy'])
+            run(['systemctl', 'enable', '--now', 'stashd.socket'], stdout=subprocess.DEVNULL)
+            for attempt in range(20):
+                response = subprocess.run(['curl', '-q', '-sS', '--max-time', '2', '--unix-socket', '/run/stashd/ssh.sock', '-o', '/dev/null', '-w', '%{http_code}', 'http://stashd/'], text=True, capture_output=True)
+                if response.returncode == 0 and response.stdout == '405':
+                    break
+                time.sleep(.25)
+            else:
+                raise RuntimeError('stashd did not answer on its Unix socket')
+            atomic(STATE, (json.dumps({**meta, 'release_id': release_id, 'backup': str(backup)}, indent=2) + '\n').encode(), 0o600)
+        except BaseException:
+            linspace_log('WARN', f'Deployment failed; restoring {backup}')
+            try:
+                restore(backup)
+            except Exception as error:
+                linspace_log('ERROR', f'Automatic restore failed: {error}. Backup: {backup}')
+            raise
+        linspace_log('OK', f'Activated release {release_id}; Stash uses SSH signatures.')
+        if args.skip_verify:
+            linspace_log('WARN', 'HTTPS verification skipped. Run ./linspace verify before declaring the site ready.')
+            return
+        linspace_log('STEP', 'Verify HTTPS routes')
+        last_error = None
+        for attempt in range(12):
+            try:
+                verify.verify(meta, args.local, quiet=True)
+                return
+            except (RuntimeError, OSError) as error:
+                last_error = error
+                if attempt < 11:
+                    time.sleep(5)
+        raise RuntimeError(f'Installed successfully, but HTTPS verification is not ready: {last_error}. Check DNS, ports 80/443, and journalctl -u caddy; then run ./linspace verify. The valid installation is retained.')
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--release', type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--adopt-existing', action='store_true')
+    parser.add_argument('--internal-test', action='store_true')
+    parser.add_argument('--local', action='store_true', help='verify via loopback with normal TLS validation')
+    parser.add_argument('--skip-verify', action='store_true')
+    parser.add_argument('--rollback', type=Path, help='restore an exact backup directory under /var/backups/linspace')
+    args = parser.parse_args(argv)
+    if args.rollback:
+        if os.geteuid() != 0 or args.rollback.is_symlink() or args.rollback.resolve().parent != Path('/var/backups/linspace'):
+            raise ValueError('Rollback requires root and a direct backup directory under /var/backups/linspace')
+        with deployment_lock():
+            restore(args.rollback)
+    else:
+        apply(args.release.resolve(), args)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError) as error:
+        linspace_log('ERROR', error)
+        sys.exit(1)

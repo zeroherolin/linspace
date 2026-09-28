@@ -1,0 +1,235 @@
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import build
+import deploy
+import verify
+
+
+class BuildTests(unittest.TestCase):
+    def test_custom_domain_rendering_release_integrity_and_tamper_detection(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            key = root / 'id_ed25519'
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'test-key', '-f', str(key)], check=True)
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'custom.example.test', 'site_name': 'Site <test>', 'icp_number': '', 'ssh_public_key_file': str(key) + '.pub', 'ssh_public_key_name': 'team.pub', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            release = build.build(config, root / 'dist', internal=True)
+            meta, identifier = deploy.checked_release(release)
+            self.assertTrue(meta['ssh_enabled'])
+            self.assertTrue(meta['internal_test'])
+            self.assertEqual(meta['ssh_public_key_name'], 'team.pub')
+            self.assertEqual(meta['stash_auth'], 'ssh-signature-v1')
+            self.assertEqual(meta['stash_key_count'], 1)
+            normalized = ' '.join(Path(str(key) + '.pub').read_text().split()[:2])
+            self.assertEqual((release / 'site/stash/keys').read_text(), normalized + '\n')
+            self.assertEqual((release / 'config/stash.allowed_signers').read_text(), f'stash namespaces="linspace-stash@custom.example.test" {normalized}\n')
+            self.assertNotIn('basic_auth', (release / 'config/stash.caddy.template').read_text())
+            self.assertNotIn('__HASH__', (release / 'config/stash.caddy.template').read_text())
+            self.assertIn('unix//run/stashd/ssh.sock', (release / 'config/stash.caddy.template').read_text())
+            self.assertIn('ListenStream=/run/stashd/ssh.sock', (release / 'service/stashd.socket').read_text())
+            self.assertEqual((release / 'site/ssh/team.pub').read_bytes(), Path(str(key) + '.pub').read_bytes())
+            self.assertFalse((release / 'site/ssh/key.pub').exists())
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix not in ('.dat', '.gz'):
+                    self.assertNotIn('@@DOMAIN@@', path.read_text())
+            self.assertIn('https://custom.example.test', (release / 'site/mihomo/install').read_text())
+            self.assertIn('https://custom.example.test/stash', (release / 'site/stash/upload7').read_text())
+            self.assertIn('Site &lt;test&gt;', (release / 'site/index.html').read_text())
+            self.assertIn('custom.example.test {', (release / 'config/Caddyfile').read_text())
+            self.assertEqual(set(re.findall(r'/ssh/[a-zA-Z0-9._-]+', (release / 'config/Caddyfile').read_text())), {'/ssh/team.pub'})
+            # The Caddy allowlist and passive verification must name the same public text routes in feature order.
+            text_routes = re.search(r'@text path (.*)', (release / 'config/Caddyfile').read_text()).group(1).split()
+            self.assertEqual(text_routes, ['/ssh/team.pub', *('/' + route for route in verify.CLIENT_ROUTES)])
+            self.assertTrue((release / 'site/codex/install').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertNotIn('redir https://chatgpt.com', (release / 'config/Caddyfile').read_text())
+            self.assertEqual((release / 'site/codex/config').read_bytes(), (ROOT / 'config/codex/config.toml').read_bytes())
+            self.assertEqual(build.siteconfig.tomllib.loads((release / 'site/codex/config').read_text())['model_catalog_json'], 'models-1m.json')
+            self.assertTrue((release / 'site/tmux/install').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertTrue((release / 'site/tmux/uninstall').read_text().startswith('#!/usr/bin/env bash'))
+            self.assertEqual((release / 'site/tmux/config').read_bytes(), (ROOT / 'config/tmux.conf').read_bytes())
+            self.assertIn('/help', (release / 'config/Caddyfile').read_text())
+            self.assertIn('href="/help"', (release / 'site/index.html').read_text())
+            help_page = (release / 'site/help').read_text()
+            self.assertIn('<title>Linspace Help · Site &lt;test&gt;</title>', help_page)
+            self.assertIn('https://custom.example.test/claude/install', help_page)
+            self.assertIn('https://custom.example.test/codex/uninstall', help_page)
+            self.assertNotIn('your-domain.cn', help_page)
+            self.assertNotIn('mihomo', help_page.lower())
+            self.assertIn('<pre data-language="bash"><code>', help_page)
+            self.assertNotIn('<script', help_page.lower())
+            help2_page = (release / 'site/help2').read_text()
+            self.assertIn('<title>Linspace Complete Help · Site &lt;test&gt;</title>', help2_page)
+            self.assertIn('<h2>SSH key</h2>', help2_page)
+            self.assertIn('https://custom.example.test/ssh/team.pub', help2_page)
+            self.assertIn('https://custom.example.test/mihomo/install', help2_page)
+            self.assertIn('https://custom.example.test/stash/upload7', help2_page)
+            self.assertNotIn('your-key.pub', help2_page)
+            self.assertNotIn('beian.miit.gov.cn', help2_page)
+            self.assertNotIn('@@', help2_page)
+            auth = (release / 'site/codex/auth').read_text()
+            self.assertIn('https://custom.example.test/codex/auth', auth)
+            subprocess.run(['bash', '-n'], input=auth, text=True, check=True)
+            models = release / 'site/codex/models_1m'
+            self.assertEqual(models.read_bytes(), (ROOT / 'config/codex/models-1m.json').read_bytes())
+            self.assertEqual({m['slug']: m['context_window'] for m in json.loads(models.read_text())['models']}, {'gpt-6-astra': 1000000, 'gpt-5.6-sol': 1000000})
+            self.assertNotIn('ssh_public_key_file', (release / 'release.json').read_text())
+            sha = hashlib.sha256((root / 'dist/linspace-site.tar.gz').read_bytes()).hexdigest()
+            release = build.build(config, root / 'dist', internal=True)
+            self.assertEqual(hashlib.sha256((root / 'dist/linspace-site.tar.gz').read_bytes()).hexdigest(), sha)
+            for _ in range(2):
+                result = subprocess.run(['bash', str(release / 'linspace'), '--internal-test', '--dry-run'], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('No host changes made', result.stderr)
+                deploy.checked_release(release)
+            # Running the bundled tools with a plain interpreter must not invalidate the release.
+            result = subprocess.run([sys.executable, str(release / 'verify.py'), '--help'], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(list(release.rglob('__pycache__')))
+            (release / '__pycache__').mkdir()
+            (release / '__pycache__/stale.cpython-39.pyc').write_bytes(b'\0')
+            deploy.checked_release(release)
+            shutil.rmtree(release / '__pycache__')
+            result = subprocess.run(['bash', str(release / 'linspace'), '--dry-run'], text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('internal-test', result.stderr)
+            extra = release / 'site/extra'
+            extra.write_text('unlisted')
+            with self.assertRaises(ValueError):
+                deploy.checked_release(release)
+            extra.unlink()
+            (release / 'site/codex/models_1m').write_text('{"models":[]}')
+            with self.assertRaises(ValueError):
+                deploy.checked_release(release)
+
+    def test_alias_hostnames_redirect_and_never_serve_content(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'alias.example.test', 'alias_domains': ['www.alias.example.test', 'old.example.test'], 'site_name': 'Alias', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            release = build.build(config, root / 'dist', internal=True)
+            caddyfile = (release / 'config/Caddyfile').read_text()
+            self.assertTrue(caddyfile.startswith('www.alias.example.test, old.example.test {\n    redir https://alias.example.test{uri} 308\n}\n\nalias.example.test {\n'))
+            self.assertEqual(caddyfile.count('root * /srv/linspace/current'), 1)
+            self.assertEqual(caddyfile.count('import /etc/caddy/linspace.d/stash.caddy'), 1)
+            meta, _ = deploy.checked_release(release)
+            self.assertEqual(meta['alias_domains'], ['www.alias.example.test', 'old.example.test'])
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix not in ('.dat', '.gz') and path.name not in ('Caddyfile', 'release.json'):
+                    self.assertNotIn('www.alias.example.test', path.read_text(), path)
+            without = root / 'plain.json'
+            without.write_text(json.dumps({'domain': 'alias.example.test', 'site_name': 'Alias', 'icp_number': '', 'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            plain = build.build(without, root / 'dist', internal=True)
+            self.assertTrue((plain / 'config/Caddyfile').read_text().startswith('alias.example.test {\n'))
+            self.assertEqual(json.loads((plain / 'release.json').read_text())['alias_domains'], [])
+
+    def test_page_host_is_rendered_only_when_configured(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            config = root / 'site.json'
+            fields = {'domain': 'pages.example.test', 'alias_domains': ['www.pages.example.test'], 'site_name': 'Pages', 'icp_number': 'ICP <备> 1号',
+                      'ssh_public_key_file': '', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}
+            config.write_text(json.dumps({**fields, 'page_domain': 'Page.Pages.example.test'}))
+            release = build.build(config, root / 'dist', internal=True)
+            meta, _ = deploy.checked_release(release)
+            self.assertEqual(meta['page_domain'], 'page.pages.example.test')
+            caddyfile = (release / 'config/Caddyfile').read_text()
+            site_block, page_block = caddyfile.split('\npage.pages.example.test {\n')
+            self.assertTrue(site_block.rstrip().endswith('}'))
+            self.assertIn('redir https://pages.example.test/ 308', page_block)
+            self.assertIn('root /var/lib/stashd/pages', page_block)
+            self.assertIn('request_header -Range', page_block)
+            self.assertNotIn('/var/lib/stashd/pages', site_block)
+            self.assertIn('--pages', (release / 'service/stashd.service').read_text())
+            self.assertIn('max_size 4MiB', (release / 'config/stash.caddy.template').read_text())
+            view = (release / 'site/page/view').read_text()
+            self.assertTrue(view.startswith('[[linspace: readFile (placeholder "http.regexp.page.1") ]]\n<footer id="linspace-filing"'))
+            self.assertEqual(view.count('[[linspace:'), 1)
+            self.assertIn('<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener"', view)
+            self.assertIn('ICP &lt;备&gt; 1号</a></footer>', view)
+            for action in ('upload', 'delete'):
+                script = (release / f'site/page/{action}').read_text()
+                self.assertEqual(script.count('[[linspace:'), 1)
+                self.assertIn(f"main('https://pages.example.test', 'page-{action}', page='[[linspace: placeholder \"http.regexp.page.1\" ]]', page_url='https://page.pages.example.test')", script)
+                self.assertIn(f'https://page.pages.example.test/NAME/{action}', script)
+                subprocess.run(['bash', '-n'], input=script, text=True, check=True)
+                embedded = script.split("<<'LINSPACE_STASH_PY'\n", 1)[1].rsplit('\nLINSPACE_STASH_PY', 1)[0]
+                compile(embedded, f'page/{action}', 'exec')
+            self.assertEqual((release / 'site/page/robots.txt').read_text(), 'User-agent: *\nDisallow: /\n')
+            self.assertIn('https://page.pages.example.test/report/upload', (release / 'site/help2').read_text())
+            # Only page-host files, the Caddy site file, the complete help page and metadata name the page host.
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix not in ('.dat', '.gz') and 'page' not in path.relative_to(release).parts and path.name not in ('Caddyfile', 'release.json', 'help2'):
+                    self.assertNotIn('page.pages.example.test', path.read_text(), path)
+            config.write_text(json.dumps(fields))
+            plain = build.build(config, root / 'dist', internal=True)
+            self.assertFalse((plain / 'site/page').exists())
+            self.assertNotIn('page.pages.example.test', (plain / 'config/Caddyfile').read_text())
+            self.assertTrue((plain / 'config/Caddyfile').read_text().endswith('}\n'))
+            self.assertNotIn('--pages', (plain / 'service/stashd.service').read_text())
+            self.assertIsNone(json.loads((plain / 'release.json').read_text())['page_domain'])
+
+    def test_every_component_enforces_the_same_page_name_rule(self):
+        name = '[a-z0-9][a-z0-9_-]{0,47}'
+        sources = {path: (ROOT / path).read_text() for path in ('src/page/site.caddy.in', 'src/stash/stash.caddy.in', 'src/stash/stashd.py', 'src/stash/client.py')}
+        for path, text in sources.items():
+            found = set(re.findall(r'\[a-z0-9\]\[[^\]]*\]\{[0-9,]+\}', text))
+            self.assertEqual(found, {name}, path)
+        site = sources['src/page/site.caddy.in']
+        # Valid names reach the rendered scripts; every other name gets the explanation instead of a bare 404.
+        invalid = site.split('@page_invalid_scripts {', 1)[1].split('\n    }\n', 1)[0]
+        self.assertIn('path_regexp ^/[^/]+/(upload|delete)$', invalid)
+        self.assertIn(f'not path_regexp ^/{name}/(upload|delete)$', invalid)
+        handler = site.split('handle @page_invalid_scripts {', 1)[1].split('\n    }\n', 1)[0]
+        self.assertIn('Invalid page name', handler)
+        self.assertIn('exit 1', handler)
+        self.assertIn('SCRIPT 200', handler)
+
+    def test_page_templates_must_hold_exactly_one_caddy_action(self):
+        self.assertEqual(build.page_template('view', 'a [[linspace: x ]] b'), 'a [[linspace: x ]] b')
+        for text in ('no action', '[[linspace: a ]] and [[linspace: b ]]'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                build.page_template('view', text)
+
+    def test_no_key_means_no_public_key_or_route(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'second.example.test', 'site_name': 'Second site', 'icp_number': '', 'ssh_public_key_file': '', 'ssh_public_key_name': 'unused.pub', 'claude_settings_file': str(ROOT / 'config/claude/settings.json')}))
+            release = build.build(config, root / 'dist', internal=True)
+            self.assertFalse((release / 'site/ssh').exists())
+            self.assertNotIn('/ssh/', (release / 'config/Caddyfile').read_text())
+            for page in ('site/help', 'site/help2'):
+                self.assertNotIn('/ssh/', (release / page).read_text())
+                self.assertNotIn('SSH key', (release / page).read_text())
+            self.assertFalse(json.loads((release / 'release.json').read_text())['ssh_enabled'])
+            self.assertEqual(json.loads((release / 'release.json').read_text())['stash_key_count'], 0)
+            self.assertEqual((release / 'config/stash.allowed_signers').read_bytes(), b'')
+
+    def test_custom_client_configs_are_published_without_private_input_paths(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-build-test-') as tmp:
+            root = Path(tmp)
+            claude = root / 'private-location-claude.json'
+            claude.write_text('{"language":"English"}')
+            codex = root / 'private-location-codex.toml'
+            codex.write_text('# Keep this comment\nmodel_reasoning_effort = "high"\n')
+            tmux = root / 'private-location-tmux.conf'
+            tmux.write_text('# Shared\nset -g mouse on\n')
+            config = root / 'site.json'
+            config.write_text(json.dumps({'domain': 'clients.example.test', 'site_name': 'Clients', 'icp_number': '', 'claude_settings_file': str(claude), 'codex_config_file': str(codex), 'tmux_config_file': str(tmux)}))
+            release = build.build(config, root / 'dist', internal=True)
+            self.assertEqual(json.loads((release / 'site/claude/config').read_text()), {'language': 'English'})
+            self.assertEqual((release / 'site/codex/config').read_bytes(), codex.read_bytes())
+            self.assertEqual((release / 'site/tmux/config').read_bytes(), tmux.read_bytes())
+            for path in release.rglob('*'):
+                if path.is_file() and path.suffix not in ('.dat', '.gz'):
+                    self.assertNotIn('private-location-', path.read_text())

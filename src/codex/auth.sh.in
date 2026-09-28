@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+@@include:src/common/ui.sh@@
+# Save an API token locally; no credentials are sent to the site.
+set +x
+set -Eeuo pipefail
+# EXIT traps on newer Bash run after function-local variables have unwound.
+linspace_auth_tmp=''
+
+fail() { linspace_log ERROR "$*"; exit 1; }
+usage() {
+    cat <<'USAGE'
+Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE_URL]
+  -t, --token TOKEN  API token for your configured provider
+  -u, --base-url URL Replace the selected provider's existing base_url in config.toml
+  -h, --help         Show this help
+Without -t, prompt visibly for an optional base_url, then read the token privately.
+An explicit -u skips the URL prompt; Enter keeps the existing URL.
+With -t, no prompts are shown; omit -u to keep config.toml untouched.
+Save to $CODEX_HOME/auth.json, or ~/.codex/auth.json by default.
+Credentials are replaced atomically without retained backups. Run without sudo.
+Missing Python is downloaded with a verified fallback when updating base_url.
+USAGE
+}
+
+main() {
+    local token='' token_given=false config_dir auth_file escaped
+    local base_url='' url_given=false
+    local LC_ALL=C
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -t|--token)
+                [[ $# -ge 2 ]] || fail 'Missing value after -t.'
+                [[ $token_given == false ]] || fail 'Pass the token only once.'
+                token=$2; token_given=true; shift 2 ;;
+            -u|--base-url)
+                [[ $# -ge 2 && -n $2 ]] || fail 'Missing value after -u.'
+                [[ $url_given == false ]] || fail 'Pass the base URL only once.'
+                base_url=$2; url_given=true; shift 2 ;;
+            -h|--help) usage; return 0 ;;
+            *) fail 'Unexpected argument. Use bash -s -- -t TOKEN, or --help.' ;;
+        esac
+    done
+    if [[ $token_given == false ]]; then
+        ( : < /dev/tty ) 2>/dev/null || fail 'No token. Pass -t TOKEN or run from a terminal.'
+        if [[ $url_given == false ]]; then
+            IFS= read -r -p 'Codex base_url (Enter to keep current): ' base_url < /dev/tty || fail 'Could not read the base URL.'
+            if [[ -n $base_url ]]; then
+                url_given=true
+            fi
+        fi
+        IFS= read -rs -p 'Codex API token: ' token < /dev/tty || fail 'Could not read the token.'
+        printf '\n' >&2
+    fi
+    [[ -n $token && $token =~ ^[[:graph:]]+$ ]] || fail 'The token must be nonempty printable ASCII without whitespace.'
+    config_dir=${CODEX_HOME:-${HOME:?HOME is required when CODEX_HOME is unset}/.codex}
+    [[ $config_dir == /* ]] || fail 'Use an absolute path for CODEX_HOME.'
+    umask 077
+    mkdir -p -- "$config_dir"
+    [[ -d $config_dir && -O $config_dir ]] || fail 'The configuration directory must belong to the current user.'
+    chmod 700 "$config_dir"
+    auth_file=$config_dir/auth.json
+    [[ ! -L $auth_file ]] || fail 'Refusing to replace a symbolic-link auth.json.'
+    [[ ! -e $auth_file || -f $auth_file ]] || fail 'auth.json must be a regular file.'
+
+    if [[ $url_given == true ]]; then
+        LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
+        linspace_python 9 || fail 'Could not prepare Python to update base_url.'
+        "$LINSPACE_PYTHON" -I - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
+import atexit, base64, pathlib, sys, tempfile
+_vendor = tempfile.TemporaryDirectory(prefix='linspace-tomli-')
+atexit.register(_vendor.cleanup)
+_vendor_path = pathlib.Path(_vendor.name) / 'vendor.zip'
+_vendor_path.write_bytes(base64.b64decode('@@TOMLI_ZIP@@'))
+sys.path.insert(0, str(_vendor_path))
+@@include:src/codex/provider_auth.py@@
+provider_auth_main()
+LINSPACE_CODEX_PROVIDER_PY
+        return
+    fi
+
+    # Keep the old credentials intact until a complete replacement is ready.
+    trap 'rm -f -- "${linspace_auth_tmp:-}"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    linspace_auth_tmp=$(mktemp "$config_dir/.auth.XXXXXX")
+    escaped=${token//\\/\\\\}
+    escaped=${escaped//\"/\\\"}
+    printf '{\n  "auth_mode": "apikey",\n  "OPENAI_API_KEY": "%s"\n}\n' "$escaped" > "$linspace_auth_tmp"
+    unset token escaped
+    if [[ -f $auth_file ]]; then
+        if cmp -s "$linspace_auth_tmp" "$auth_file"; then
+            chmod 600 "$auth_file"
+            rm -f -- "$linspace_auth_tmp"
+            linspace_auth_tmp=''
+            linspace_log OK "Credentials already saved in $auth_file"
+            return 0
+        fi
+    fi
+    mv -f -- "$linspace_auth_tmp" "$auth_file"
+    linspace_auth_tmp=''
+    linspace_log OK "Saved API credentials to $auth_file (mode 600)."
+    linspace_log INFO 'Token validity is checked when Codex connects to your provider.'
+}
+
+@@include:src/common/download.sh.in@@
+
+# Parse the complete function before acting on a streamed download.
+main "$@"

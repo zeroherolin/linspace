@@ -1,0 +1,75 @@
+@@PAGE_DOMAIN@@ {
+    # Uploaded pages run their own scripts, so they live on an origin apart from the site.
+    root * /srv/linspace/current/page
+    header X-Content-Type-Options "nosniff"
+    header Strict-Transport-Security "max-age=31536000"
+    header Referrer-Policy "strict-origin-when-cross-origin"
+    header X-Robots-Tag "noindex, nofollow"
+    header Cache-Control "no-store"
+
+    @page {
+        method GET HEAD
+        path_regexp page ^/([a-z0-9][a-z0-9_-]{0,47})$
+        file {
+            root /var/lib/stashd/pages
+            try_files {path}
+        }
+    }
+    handle @page {
+        # A byte range would reach the file server directly and return the unrendered template.
+        request_header -Range
+        rewrite * /view
+        header Content-Type "text/html; charset=utf-8"
+        header Content-Security-Policy "frame-ancestors 'self'"
+        header X-Frame-Options "SAMEORIGIN"
+        # The release template appends the filing notice; readFile inserts the page bytes without evaluating them.
+        templates {
+            mime text/html
+            between "[[linspace:" "]]"
+            root /var/lib/stashd/pages
+        }
+        file_server
+    }
+
+    @page_scripts {
+        method GET HEAD
+        path_regexp page ^/([a-z0-9][a-z0-9_-]{0,47})/(upload|delete)$
+    }
+    handle @page_scripts {
+        request_header -Range
+        rewrite * /{re.page.2}
+        header Content-Type "text/plain; charset=utf-8"
+        # Each script carries the page name from its own address, so users never type it twice.
+        templates {
+            mime text/plain
+            between "[[linspace:" "]]"
+        }
+        file_server
+    }
+
+    # curl -f would hide a 404 body, so an invalid name gets a script that states the rule and fails.
+    @page_invalid_scripts {
+        method GET HEAD
+        path_regexp ^/[^/]+/(upload|delete)$
+        not path_regexp ^/[a-z0-9][a-z0-9_-]{0,47}/(upload|delete)$
+    }
+    handle @page_invalid_scripts {
+        header Content-Type "text/plain; charset=utf-8"
+        respond <<SCRIPT
+            #!/usr/bin/env bash
+            echo '[linspace] ERROR Invalid page name. Use up to 48 lowercase letters, digits, hyphens or underscores, starting with a letter or digit.' >&2
+            exit 1
+            SCRIPT 200
+    }
+
+    handle /robots.txt {
+        header Content-Type "text/plain; charset=utf-8"
+        file_server
+    }
+    handle / {
+        redir https://@@DOMAIN@@/ 308
+    }
+    handle {
+        respond "Not found" 404
+    }
+}
