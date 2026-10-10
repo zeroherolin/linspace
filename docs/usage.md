@@ -96,7 +96,7 @@ chmod 600 ~/.claude/settings.json
 
 The installer reuses a working same-version or newer client; otherwise it installs the reviewed native package. Rerun to update. An installation from another source is updated with its own installer or package manager.
 
-The download replaces `settings.json`. The [bundled preset](../config/claude/settings.json) selects `claude-fable-5-1[1m]`, Chinese responses and `xhigh` effort, and disables the sandbox; the operator may publish a different one. It contains no credentials.
+The download replaces `settings.json`. The [bundled preset](../config/claude/settings.json) selects `claude-opus-5-5[1m]`, Chinese responses and `xhigh` effort, and pre-approves Bash and file edits; the operator may publish a different one. It contains no credentials.
 
 Start `claude` in your project directory and follow the sign-in prompts. For a relay, set its address and token in the current terminal first:
 

@@ -61,7 +61,7 @@ The wizard saves `local/site.json`, which Git ignores. Enter keeps the current v
 
 The wizard copies the SSH key into `local/keys/` and publishes it at `/ssh/<ssh_public_key_name>`. Relative paths resolve from the checkout; `~/` is expanded when configuring.
 
-Client settings are public. Known credential fields are rejected, but review the presets: Claude disables its sandbox, Codex uses a relay with `danger-full-access`, and clients apply the tmux file as-is. Keep custom input files in `local/`. [Configuration template](config/site.example.json).
+Client settings are public. Known credential fields are rejected, but review the presets: Claude pre-approves Bash and file edits, Codex uses a relay with `danger-full-access`, and clients apply the tmux file as-is. Keep custom input files in `local/`. [Configuration template](config/site.example.json).
 
 ### 4. Preview and deploy
 
