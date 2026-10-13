@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import hashlib
 import sys
@@ -174,14 +175,39 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(owned, deploy.owned_main())
         self.assertTrue(owned.startswith(deploy.MARKER + '\n{\n'))
         self.assertIn('read_body 60s', owned)
-        self.assertTrue(owned.endswith(deploy.IMPORT + '\n'))
+        # The whole folder is imported, so site files other tools keep beside linspace's survive
+        self.assertTrue(owned.endswith(deploy.OWNED_IMPORT + '\n'))
+        self.assertEqual(deploy.OWNED_IMPORT, 'import /etc/caddy/sites-enabled/*.caddy')
         # Global options must precede every site block or import in a Caddyfile.
-        self.assertLess(owned.index('servers {'), owned.index(deploy.IMPORT))
+        self.assertLess(owned.index('servers {'), owned.index(deploy.OWNED_IMPORT))
+        # ... and that glob covers linspace's own site file, which the rest of the deployer relies on
+        self.assertTrue(fnmatch.fnmatchcase(str(deploy.SITE), '/etc/caddy/sites-enabled/*.caddy'))
 
     def test_previously_owned_import_only_file_gains_global_options(self):
-        for text in (deploy.IMPORT + '\n', '\n' + deploy.IMPORT + '\n\n', deploy.owned_main()):
+        for text in (deploy.IMPORT + '\n', '\n' + deploy.IMPORT + '\n\n', deploy.OWNED_IMPORT + '\n', deploy.owned_main()):
             with self.subTest(text=text):
                 self.assertEqual(deploy.merged_main(text, 'mine.cn'), deploy.owned_main())
+
+    def test_a_caddyfile_from_an_earlier_version_is_upgraded_to_load_the_whole_folder(self):
+        earlier = deploy.MARKER + '\n' + deploy.GLOBAL_OPTIONS + deploy.IMPORT + '\n'
+        upgraded = deploy.merged_main(earlier, 'mine.cn')
+        self.assertEqual(upgraded, deploy.owned_main())
+        self.assertNotEqual(upgraded, earlier)
+        self.assertEqual(deploy.merged_main(upgraded, 'mine.cn'), upgraded)  # and stays put
+
+    def test_a_site_file_another_tool_keeps_in_the_folder_is_loaded_with_the_owned_caddyfile(self):
+        # What Caddy would load: every file the owned Caddyfile's import matches
+        folder = Path(deploy.SITE).parent
+        pattern = str(folder / '*.caddy')
+        self.assertEqual(deploy.OWNED_IMPORT.split()[1], pattern)
+        for name in ('linspace.caddy', 'brushgraft.caddy', 'anything-else.caddy'):
+            self.assertTrue(fnmatch.fnmatchcase(str(folder / name), pattern), name)
+        self.assertFalse(fnmatch.fnmatchcase(str(folder / 'notes.txt'), pattern))
+
+    def test_in_a_caddyfile_someone_else_owns_only_linspaces_own_file_is_imported(self):
+        after = deploy.merged_main('other.cn {\n respond "other site"\n}\n', 'mine.cn')
+        self.assertIn(deploy.IMPORT, after)
+        self.assertNotIn(deploy.OWNED_IMPORT, after)
 
     def test_other_sites_are_preserved_and_import_is_idempotent(self):
         before = 'other.cn {\n respond "other site"\n}\n'

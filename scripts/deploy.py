@@ -33,6 +33,9 @@ CURRENT = Path('/srv/linspace/current')
 STATE = Path('/var/lib/linspace/state.json')
 LOCK = Path('/var/lib/linspace/deploy.lock')
 IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
+# In a Caddyfile linspace owns it loads the whole folder, so site files that other tools keep
+# there survive a redeployment. In someone else's Caddyfile only linspace's own file is imported.
+OWNED_IMPORT = 'import /etc/caddy/sites-enabled/*.caddy'
 # When linspace owns the whole Caddyfile it also sets server-wide request deadlines,
 # so a trickled upload cannot hold connections open. Other sites keep their own file.
 MARKER = '# Managed by linspace. Edit sites-enabled/linspace.caddy through the deployer.'
@@ -41,7 +44,7 @@ MANAGED = [MAIN, SITE, FRAGMENT, LEGACY_TOKEN, STATE, Path('/usr/local/lib/stash
 
 
 def owned_main():
-    return MARKER + '\n' + GLOBAL_OPTIONS + IMPORT + '\n'
+    return MARKER + '\n' + GLOBAL_OPTIONS + OWNED_IMPORT + '\n'
 
 
 @contextmanager
@@ -152,7 +155,7 @@ def shell_scripts(release):
 def merged_main(text, domain, fresh=False, adopt=False, aliases=(), page_domain=None):
     stripped = text.strip()
     # Files linspace wrote itself (marker, or the earlier import-only form) are upgraded in place.
-    if fresh or not stripped or stripped == IMPORT or stripped.startswith(MARKER):
+    if fresh or not stripped or stripped in (IMPORT, OWNED_IMPORT) or stripped.startswith(MARKER):
         return owned_main()
     depth = 0
     for line in text.splitlines():

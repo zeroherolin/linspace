@@ -55,6 +55,15 @@ sudo ./linspace deploy --adopt-existing
 
 Complex layouts need a manual merge. A fresh Caddy installation's welcome site is replaced.
 
+### Sharing Caddy with other sites
+
+When linspace owns `/etc/caddy/Caddyfile`, that file imports `/etc/caddy/sites-enabled/*.caddy`: every `.caddy` file in the folder is loaded, not only linspace's. Another project can therefore keep its own site file there, and a linspace redeployment rewrites only `linspace.caddy` and the Caddyfile itself. Two things follow:
+
+- A file in that folder that Caddy rejects makes `caddy validate` fail, so the deployment stops and rolls back. Fix or remove that file and deploy again.
+- Rollback restores the Caddyfile from the backup. A backup made before another site was added contains an import of `linspace.caddy` alone, so that site stops being served until its tool is run again; its files stay where they are.
+
+A Caddyfile that linspace does not own keeps the narrow form: the deployer adds `import /etc/caddy/sites-enabled/linspace.caddy` and nothing else.
+
 ## Caddy updates
 
 When deployment installs Caddy itself, it installs the pinned `.deb` from `config/downloads.json` and configures no package repository, so `apt upgrade` will not update it. Either add the official repository once so security fixes arrive with the system, or redeploy after the project raises the pinned version:
