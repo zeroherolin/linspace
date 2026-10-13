@@ -200,7 +200,7 @@ class DeploymentTests(unittest.TestCase):
         folder = Path(deploy.SITE).parent
         pattern = str(folder / '*.caddy')
         self.assertEqual(deploy.OWNED_IMPORT.split()[1], pattern)
-        for name in ('linspace.caddy', 'brushgraft.caddy', 'anything-else.caddy'):
+        for name in ('linspace.caddy', 'another-site.caddy'):
             self.assertTrue(fnmatch.fnmatchcase(str(folder / name), pattern), name)
         self.assertFalse(fnmatch.fnmatchcase(str(folder / 'notes.txt'), pattern))
 
