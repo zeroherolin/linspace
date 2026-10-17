@@ -47,6 +47,7 @@ All routes except published pages are served on the canonical `domain` only. Eve
 | `/stash/challenge` | GET issues a signing challenge; HEAD checks availability |
 | `/stash/clear` | GET serves the script; signed POST clears all channels |
 | `/stash/page/NAME` | Signed PUT publishes a page and signed DELETE removes it; needs `page_domain` |
+| `/stash/pages` | Signed GET lists pages as `NAME`, size and Unix modification time, tab-separated; signed DELETE removes every page; needs `page_domain` |
 
 Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
 
@@ -58,6 +59,7 @@ Unknown routes return 404. Public text is served with `no-store` and `nosniff`. 
 | --- | --- |
 | `/NAME` | The stored page followed by the filing notice, as `text/html` |
 | `/NAME/upload`, `/NAME/delete` | Client scripts with `NAME` filled in |
+| `/list`, `/clear` | Client scripts that list or delete every page; `list` and `clear` are therefore never page names, and the writer refuses them with 403 |
 | `/robots.txt` | Disallows all crawling |
 | `/` | `308` redirect to the canonical home page |
 
@@ -105,7 +107,7 @@ Stash uses [OpenSSH SSHSIG signatures](https://man.openbsd.org/ssh-keygen.1#Y~3)
 1. GET `/stash/keys` returns authorized public keys for client discovery.
 2. GET `/stash/challenge` returns an opaque challenge valid for 90 seconds.
 3. Sign the message below with namespace `linspace-stash@DOMAIN`.
-4. Send PUT `/stash/downloadN` or `/stash/page/NAME` with the file bytes, POST `/stash/clear` with an empty body, or DELETE `/stash/page/NAME` without a body, carrying `X-Linspace-Challenge` and `X-Linspace-Signature` (Base64 of the ASCII-armored signature).
+4. Send PUT `/stash/downloadN` or `/stash/page/NAME` with the file bytes, POST `/stash/clear` with an empty body, DELETE `/stash/page/NAME` or `/stash/pages` without a body, or GET `/stash/pages`, carrying `X-Linspace-Challenge` and `X-Linspace-Signature` (Base64 of the ASCII-armored signature).
 
 ```text
 linspace-stash-v1
@@ -116,9 +118,9 @@ LOWERCASE_SHA256_OF_BODY
 CHALLENGE
 ```
 
-Lines end with LF, including the last. For clear, use `POST`, `/stash/clear` and the empty-body digest; a page deletion signs `DELETE`, its path and the empty-body digest. Page writes are signed for the canonical domain, not the page host. The configured hostname defines the audience, not the request Host header. Write paths reject queries, alternate encodings and absolute-form targets; clients do not follow redirects with signed requests.
+Lines end with LF, including the last. For clear, use `POST`, `/stash/clear` and the empty-body digest; a page deletion signs `DELETE`, its path and the empty-body digest, and the page list and page clear sign `GET` or `DELETE`, `/stash/pages` and the empty-body digest. Page writes are signed for the canonical domain, not the page host. The configured hostname defines the audience, not the request Host header. Write paths reject queries, alternate encodings and absolute-form targets; clients do not follow redirects with signed requests.
 
-The build emits a root-owned `allowed_signers` file for up to 64 keys, restricted to the site's namespace and the `stash` principal; `ssh-keygen -Y verify` checks it. All authorized keys have equal upload and clear access. A challenge holds 32 random bytes, an expiry and an HMAC-SHA256 over a per-process secret; issuance stores nothing. After verification a locked replay map consumes the challenge once. Restarts replace the secret and invalidate old challenges. Clients need no synchronized clock.
+The build emits a root-owned `allowed_signers` file for up to 64 keys, restricted to the site's namespace and the `stash` principal; `ssh-keygen -Y verify` checks it. All authorized keys have equal upload, list and clear access. A challenge holds 32 random bytes, an expiry and an HMAC-SHA256 over a per-process secret; issuance stores nothing. After verification a locked replay map consumes the challenge once. Restarts replace the secret and invalidate old challenges. Clients need no synchronized clock.
 
 | Bound | Limit |
 | --- | --- |

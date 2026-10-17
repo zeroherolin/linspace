@@ -140,14 +140,20 @@ class VerificationTests(unittest.TestCase):
             if path == '/robots.txt':
                 return 200, {**self.PAGE_HEADERS, 'content-type': 'text/plain'}
             return 404, {**self.PAGE_HEADERS, 'content-type': 'text/plain; charset=utf-8'}
+        if path == '/stash/pages':
+            return 401, {}
+        if path in ('/stash/page/list', '/stash/page/clear'):
+            return 403, {}
         if method == 'DELETE':
             return 401, {}
         return self.response(domain, path, method, local, scheme)
 
     @classmethod
     def page_script(cls, domain, path, local=False):
-        name, action = path.strip('/').split('/')
         headers = {**cls.PAGE_HEADERS, 'content-type': 'text/plain; charset=utf-8'}
+        if path in ('/list', '/clear'):
+            return 200, headers, f"main('https://verify.example.test', 'page-{path.strip('/')}', page_url='https://page.verify.example.test')\n"
+        name, action = path.strip('/').split('/')
         if name == 'Not_A_Page':
             return 200, headers, "echo '[linspace] ERROR Invalid page name. Use ...' >&2\nexit 1\n"
         return 200, headers, f"main('https://verify.example.test', 'page-{action}', page='{name}')\n"
@@ -158,8 +164,11 @@ class VerificationTests(unittest.TestCase):
             verify.verify(self.PAGE_META, quiet=True)
         writes = [(call.args[2], call.args[1]) for call in probe.call_args_list if len(call.args) > 2 and call.args[2] not in ('HEAD', 'GET')]
         self.assertEqual(writes, [('POST', '/stash/clear'), ('PUT', '/stash/download0'),
-                                  ('PUT', '/stash/page/linspace-verify'), ('DELETE', '/stash/page/linspace-verify')])
-        self.assertEqual([call.args[1] for call in fetch.call_args_list], ['/linspace-verify/upload', '/linspace-verify/delete', '/Not_A_Page/upload'])
+                                  ('PUT', '/stash/page/linspace-verify'), ('DELETE', '/stash/page/linspace-verify'),
+                                  ('DELETE', '/stash/pages'), ('PUT', '/stash/page/list'), ('PUT', '/stash/page/clear')])
+        # The page list is a signed GET: unsigned, it must be refused rather than served.
+        self.assertIn(('verify.example.test', '/stash/pages', 'GET', False), [call.args[:4] for call in probe.call_args_list])
+        self.assertEqual([call.args[1] for call in fetch.call_args_list], ['/linspace-verify/upload', '/linspace-verify/delete', '/Not_A_Page/upload', '/list', '/clear'])
         page_paths = {call.args[1] for call in probe.call_args_list if call.args[0] == 'page.verify.example.test'}
         self.assertEqual(page_paths, {'/linspace-verify', '/robots.txt', '/Not_A_Page', '/linspace-verify/source', '/'})
 
@@ -172,6 +181,13 @@ class VerificationTests(unittest.TestCase):
             # The invalid-name handler is missing, so the name falls through to the 404 route.
             return (404, {**self.PAGE_HEADERS, 'content-type': 'text/plain'}, 'Not found') if path.startswith('/Not_A_Page/') else self.page_script(domain, path, local)
 
+        def list_served_as_page(domain, path, local=False):
+            # Without its own route, /list would reach the page view and return 404.
+            return (404, {**self.PAGE_HEADERS, 'content-type': 'text/plain'}, 'Not found') if path == '/list' else self.page_script(domain, path, local)
+
+        def clear_is_a_page_script(domain, path, local=False):
+            return self.page_script(domain, '/clear/delete' if path == '/clear' else path, local)
+
         def replace(target, status=None, headers=None):
             def response(domain, path, method='HEAD', local=False, scheme='https', output='/dev/null'):
                 result = self.page_response(domain, path, method, local, scheme)
@@ -183,12 +199,17 @@ class VerificationTests(unittest.TestCase):
         page = 'page.verify.example.test'
         cases = [('unrendered script', self.page_response, unrendered),
                  ('invalid name without explanation', self.page_response, bare_invalid_name),
+                 ('missing list script', self.page_response, list_served_as_page),
+                 ('clear script deletes one page', self.page_response, clear_is_a_page_script),
                  ('indexable page', replace((page, '/linspace-verify', 'HEAD'), headers={'x-robots-tag': ''}), self.page_script),
                  ('cached page', replace((page, '/linspace-verify', 'HEAD'), 200, {'content-type': 'text/html', 'cache-control': 'max-age=60'}), self.page_script),
                  ('page served as text', replace((page, '/linspace-verify', 'HEAD'), 200), self.page_script),
                  ('root serves content', replace((page, '/', 'HEAD'), 200), self.page_script),
                  ('extra route', replace((page, '/linspace-verify/source', 'HEAD'), 200), self.page_script),
-                 ('pages disabled in stashd', replace(('verify.example.test', '/stash/page/linspace-verify', 'DELETE'), 405), self.page_script)]
+                 ('pages disabled in stashd', replace(('verify.example.test', '/stash/page/linspace-verify', 'DELETE'), 405), self.page_script),
+                 ('public page list', replace(('verify.example.test', '/stash/pages', 'GET'), 200), self.page_script),
+                 ('page list not routed to stashd', replace(('verify.example.test', '/stash/pages', 'DELETE'), 404), self.page_script),
+                 ('reserved name accepted', replace(('verify.example.test', '/stash/page/list', 'PUT'), 401), self.page_script)]
         for name, probe, fetch in cases:
             with self.subTest(name), patch.object(verify, 'probe', side_effect=probe), patch.object(verify, 'fetch', side_effect=fetch):
                 with self.assertRaises(RuntimeError):

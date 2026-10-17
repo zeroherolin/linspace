@@ -10,6 +10,8 @@
     @page {
         method GET HEAD
         path_regexp page ^/([a-z0-9][a-z0-9_-]{0,47})$
+        # These two names serve the list and clear scripts instead; stashd refuses to publish under them.
+        not path /list /clear
         file {
             root /var/lib/stashd/pages
             try_files {path}
@@ -44,6 +46,16 @@
             mime text/plain
             between "[[linspace:" "]]"
         }
+        file_server
+    }
+
+    # List and clear act on every page, so their scripts carry no name and need no templates.
+    @page_all_scripts {
+        method GET HEAD
+        path /list /clear
+    }
+    handle @page_all_scripts {
+        header Content-Type "text/plain; charset=utf-8"
         file_server
     }
 

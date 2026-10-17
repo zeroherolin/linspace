@@ -169,19 +169,23 @@ Sites with a page host (`page.your-domain.cn` below) publish single HTML files a
 ```sh
 curl -fsSL https://page.your-domain.cn/report/upload | bash -s -- 'report.html'
 curl -fsSL https://page.your-domain.cn/report/delete | bash
+curl -fsSL https://page.your-domain.cn/list | bash
+curl -fsSL https://page.your-domain.cn/clear | bash
 ```
 
-The page opens at `https://page.your-domain.cn/report`; uploading again replaces it. Pages are public with no history or expiry, are not indexed and cannot be framed by other sites.
+The page opens at `https://page.your-domain.cn/report`; uploading again replaces it. `list` prints one line per page on stdout — modification time, size in bytes and address — and `clear` deletes every page without asking; Stash channels are untouched. Pages are public with no history or expiry, are not indexed and cannot be framed by other sites.
 
 - Files are UTF-8 up to 4 MiB. Inline images, styles and scripts, or load them from `https://` addresses; relative files such as `./chart.png` are not published.
 - The site's filing number follows the page content; a page that never scrolls, such as a full-screen app, may hide it.
 - Pages run on the page host, apart from the main site, so browser storage works; all pages share that storage.
-- A site holds up to 64 pages and has no public list; delete unused ones.
+- A site holds up to 64 pages. Only authorized keys can list them; there is no public index.
+- `list` and `clear` are reserved and cannot be page names.
 
 | Result | Meaning |
 | --- | --- |
 | Invalid page name | The name in the address breaks the rule above; for example, use `beijing_plan`, not `Beijing Plan` |
 | No valid page name | The script was not downloaded from `https://page.your-domain.cn/NAME/upload` |
+| Reserved / 403 | `list` and `clear` belong to the page-host scripts; choose another name |
 | 404 on upload | The site does not publish pages |
 | 404 on delete | No page has this name |
 | 413 | The file exceeds 4 MiB |

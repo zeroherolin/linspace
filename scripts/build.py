@@ -140,6 +140,9 @@ def build(config_path, output=None, internal=False):
         for action, usage in [('upload', ' -s -- FILE.html'), ('delete', '')]:
             script = render('src/page/script.sh.in', values).replace('__ACTION__', action).replace('__USAGE__', usage)
             write(release, f'site/page/{action}', page_template('src/page/script.sh.in', script))
+        # List and clear act on every page; Caddy serves them as plain files.
+        for action in ('list', 'clear'):
+            write(release, f'site/page/{action}', render('src/page/all.sh.in', values).replace('__ACTION__', action))
         write(release, 'site/page/view', page_template('src/page/view.html.in', siteconfig.page(config, 'src/page/view.html.in')))
         write(release, 'site/page/robots.txt', (ROOT / 'src/page/robots.txt').read_bytes())
     if published_key:

@@ -142,7 +142,7 @@ def main():
                 for alias in config['alias_domains']:
                     print(f'https://{alias}/  (redirects to https://{config["domain"]}/)')
                 if config['page_domain']:
-                    for path in ('NAME', 'NAME/upload', 'NAME/delete'):
+                    for path in ('NAME', 'NAME/upload', 'NAME/delete', 'list', 'clear'):
                         print(f'https://{config["page_domain"]}/{path}')
 
 

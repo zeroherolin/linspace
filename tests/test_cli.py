@@ -101,7 +101,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(profile.read_text())['page_domain'], 'page.cli.example.test')
             urls = command('urls').stdout.splitlines()
-            self.assertEqual(urls[-3:], ['https://page.cli.example.test/NAME', 'https://page.cli.example.test/NAME/upload', 'https://page.cli.example.test/NAME/delete'])
+            self.assertEqual(urls[-5:], ['https://page.cli.example.test/NAME', 'https://page.cli.example.test/NAME/upload', 'https://page.cli.example.test/NAME/delete',
+                                         'https://page.cli.example.test/list', 'https://page.cli.example.test/clear'])
             before = profile.read_bytes()
             result = command('configure', '--non-interactive', '--page-domain', 'cli.example.test')
             self.assertNotEqual(result.returncode, 0)

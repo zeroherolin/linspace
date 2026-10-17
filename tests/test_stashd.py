@@ -78,6 +78,8 @@ class StashProtocolTests(unittest.TestCase):
         headers = dict(headers or {})
         if signed and method in ('PUT', 'POST', 'DELETE') and 'X-Linspace-Signature' not in headers:
             headers.update(self.signed_headers(method, path, body or b''))
+        if signed and method == 'GET' and path == stashd.PAGE_INDEX and 'X-Linspace-Signature' not in headers:
+            headers.update(self.signed_headers(method, path))
         connection = UnixConnection(self.path)
         try:
             try:
@@ -263,6 +265,53 @@ class StashProtocolTests(unittest.TestCase):
         self.assertEqual(self.request('PUT', '/stash/page/other', b'<p>keep</p>', stolen)[0], 401)
         self.assertEqual(self.request('PUT', '/stash/download0', b'<p>keep</p>', stolen)[0], 401)
         self.assertEqual(sorted(p.name for p in self.pages.iterdir()), ['keep'])
+
+    def test_signed_page_list_and_clear_leave_channels_alone(self):
+        self.assertEqual(self.request('GET', '/stash/pages'), (200, b''))
+        for name, body in [('q3-report', b'<p>report</p>'), ('2026-plan', b'<p>plan</p>')]:
+            self.request('PUT', f'/stash/page/{name}', body)
+        (self.pages / '.new-leftover').write_bytes(b'x')
+        self.request('PUT', '/stash/download0', b'text')
+        status, body = self.request('GET', '/stash/pages')
+        self.assertEqual(status, 200)
+        rows = [line.split('\t') for line in body.decode().splitlines()]
+        self.assertEqual([(name, size) for name, size, _ in rows], [('2026-plan', '11'), ('q3-report', '13')])
+        for _, _, modified in rows:
+            self.assertLess(abs(int(modified) - time.time()), 60)
+        self.assertEqual(self.request('DELETE', '/stash/pages')[0], 204)
+        self.assertEqual([p.name for p in self.pages.iterdir()], ['.new-leftover'])
+        self.assertTrue((stashd.DATA / 'download0').exists())
+        self.assertEqual(self.request('GET', '/stash/pages'), (200, b''))
+        # Clearing again succeeds: an empty site is the requested state.
+        self.assertEqual(self.request('DELETE', '/stash/pages')[0], 204)
+
+    def test_page_list_and_clear_require_their_own_signature(self):
+        self.request('PUT', '/stash/page/keep', b'<p>keep</p>')
+        for method in ('GET', 'DELETE'):
+            other = 'DELETE' if method == 'GET' else 'GET'
+            for headers in ({}, self.signed_headers(method, '/stash/pages', key=self.other_key),
+                            self.signed_headers(other, '/stash/pages'), self.signed_headers(method, '/stash/page/keep')):
+                with self.subTest(method=method, headers=list(headers)):
+                    self.assertEqual(self.request(method, '/stash/pages', headers=headers, signed=False)[0], 401)
+        self.assertEqual(self.request('DELETE', '/stash/pages', b'x')[0], 400)
+        self.assertEqual(self.request('GET', '/stash/pages', b'x')[0], 400)
+        self.assertEqual([p.name for p in self.pages.iterdir()], ['keep'])
+        for path in ('/stash/pages/', '/stash/pages?x=1', '/stash/Pages'):
+            with self.subTest(path=path):
+                self.assertEqual(self.request('DELETE', path)[0], 405)
+        stashd.PAGES = None
+        self.assertEqual(self.request('GET', '/stash/pages')[0], 405)
+        self.assertEqual(self.request('DELETE', '/stash/pages')[0], 405)
+        self.assertTrue((self.pages / 'keep').exists())
+
+    def test_script_names_cannot_be_published_as_pages(self):
+        for name in stashd.RESERVED_PAGES:
+            with self.subTest(name=name):
+                self.assertEqual(self.request('PUT', f'/stash/page/{name}', b'<p>x</p>')[0], 403)
+                self.assertFalse((self.pages / name).exists())
+        # Deleting a reserved name only reports that no such page exists.
+        self.assertEqual(self.request('DELETE', '/stash/page/list')[0], 404)
+        self.assertEqual(self.request('PUT', '/stash/page/lists', b'<p>x</p>')[0], 204)
 
     def raw_request(self, text, wait=0):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

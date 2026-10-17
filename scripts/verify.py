@@ -59,6 +59,16 @@ def verify_pages(domain, page, local=False, quiet=False):
         status, _ = probe(domain, f'/stash/page/{PROBE_PAGE}', method, local)
         if status != 401:
             raise RuntimeError(f'{method} /stash/page/{PROBE_PAGE}: expected 401, got {status}')
+    # The list is a signed read; clearing every page is a signed DELETE with no body.
+    for method in ('GET', 'DELETE'):
+        status, _ = probe(domain, '/stash/pages', method, local)
+        if status != 401:
+            raise RuntimeError(f'{method} /stash/pages: expected 401, got {status}')
+    # A page may not take a name that the page host serves as one of its own scripts; stashd refuses before any signature.
+    for name in ('list', 'clear'):
+        status, _ = probe(domain, f'/stash/page/{name}', 'PUT', local)
+        if status != 403:
+            raise RuntimeError(f'PUT /stash/page/{name}: expected 403, got {status}')
     for action in ('upload', 'delete'):
         path = f'/{PROBE_PAGE}/{action}'
         status, headers, text = fetch(page, path, local)
@@ -71,6 +81,13 @@ def verify_pages(domain, page, local=False, quiet=False):
     status, headers, text = fetch(page, '/Not_A_Page/upload', local)
     if status != 200 or not headers.get('content-type', '').startswith('text/plain') or 'Invalid page name' not in text or 'exit 1' not in text:
         raise RuntimeError(f'https://{page}/Not_A_Page/upload: expected a script that rejects the name (HTTP {status})')
+    for action in ('list', 'clear'):
+        status, headers, text = fetch(page, f'/{action}', local)
+        if status != 200 or not headers.get('content-type', '').startswith('text/plain') or 'no-store' not in headers.get('cache-control', '') or headers.get('x-content-type-options') != 'nosniff' or '[[linspace:' in text:
+            raise RuntimeError(f'https://{page}/{action}: unexpected status or headers (HTTP {status})')
+        # The script must act on every page; the upload or delete script for a page cannot.
+        if f"'page-{action}'" not in text:
+            raise RuntimeError(f'https://{page}/{action}: this is not the {action} script for every page')
     status, headers = probe(page, '/' + PROBE_PAGE, local=local)
     media = 'text/html' if status == 200 else 'text/plain'
     if status not in (200, 404) or not headers.get('content-type', '').startswith(media) or 'no-store' not in headers.get('cache-control', '') or headers.get('x-content-type-options') != 'nosniff' or 'noindex' not in headers.get('x-robots-tag', ''):

@@ -25,7 +25,7 @@ handle @stash_read {
 }
 
 # Text channels stay small; a published page is one HTML file that may inline its images.
-@stash_text path_regexp ^/stash/(challenge|download[0-7]|clear)$
+@stash_text path_regexp ^/stash/(challenge|download[0-7]|clear|pages)$
 request_body @stash_text {
     max_size 1MiB
 }
@@ -35,7 +35,7 @@ request_body @stash_page {
 }
 
 @stash_api {
-    path_regexp ^/stash/(challenge|download[0-7]|clear|page/[a-z0-9][a-z0-9_-]{0,47})$
+    path_regexp ^/stash/(challenge|download[0-7]|clear|pages|page/[a-z0-9][a-z0-9_-]{0,47})$
 }
 handle @stash_api {
     reverse_proxy unix//run/stashd/ssh.sock {

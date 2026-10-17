@@ -53,6 +53,6 @@ sudo ./linspace deploy --config local/site.test.json --internal-test --local
 | Claude Code | Native/npm coexistence, reuse, uninstall with session-record retention and reinstall |
 | Codex | Native/npm coexistence, reuse, catalog/auth compatibility, prompt and `-t`/`-u` paths, failed-write recovery, uninstall with session-record retention and reinstall |
 | Stash | All channels and aliases, file/agent key discovery, replay/tamper rejection, clear and preserved data |
-| Pages | Upload, replace and delete by name, filing notice in a browser, flex-body placement, storage isolation from the site, 64-page limit |
+| Pages | Upload, replace and delete by name, list and clear, reserved script names, filing notice in a browser, flex-body placement, storage isolation from the site, 64-page limit |
 
 Test non-root accounts and paths containing spaces. Exercise uninstall and real process stopping only in disposable Linux containers; macOS tests use temporary homes and mocked process results. Apple Silicon installs real pinned packages; Intel coverage checks asset selection and needs an Intel Mac for final validation. Record the revision, runtimes, network route, failures and skipped checks, then remove test-created files, accounts and credentials.

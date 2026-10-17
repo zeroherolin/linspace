@@ -164,6 +164,15 @@ class BuildTests(unittest.TestCase):
                 subprocess.run(['bash', '-n'], input=script, text=True, check=True)
                 embedded = script.split("<<'LINSPACE_STASH_PY'\n", 1)[1].rsplit('\nLINSPACE_STASH_PY', 1)[0]
                 compile(embedded, f'page/{action}', 'exec')
+            for action in ('list', 'clear'):
+                script = (release / f'site/page/{action}').read_text()
+                self.assertNotIn('[[linspace:', script)
+                self.assertIn(f"main('https://pages.example.test', 'page-{action}', page_url='https://page.pages.example.test')", script)
+                self.assertIn(f'# Usage: curl -fsSL https://page.pages.example.test/{action} | bash\n', script)
+                subprocess.run(['bash', '-n'], input=script, text=True, check=True)
+            # Each script name is served by its own route and is reserved everywhere a page can be published.
+            self.assertIn('not path /list /clear', page_block)
+            self.assertIn('path /list /clear', page_block.split('@page_all_scripts {', 1)[1].split('}', 1)[0])
             self.assertEqual((release / 'site/page/robots.txt').read_text(), 'User-agent: *\nDisallow: /\n')
             self.assertIn('https://page.pages.example.test/report/upload', (release / 'site/help2').read_text())
             # Only page-host files, the Caddy site file, the complete help page and metadata name the page host.
@@ -184,6 +193,9 @@ class BuildTests(unittest.TestCase):
         for path, text in sources.items():
             found = set(re.findall(r'\[a-z0-9\]\[[^\]]*\]\{[0-9,]+\}', text))
             self.assertEqual(found, {name}, path)
+        # The writer and the client refuse the same script names that the page host routes away from pages.
+        for path in ('src/stash/stashd.py', 'src/stash/client.py'):
+            self.assertIn("RESERVED_PAGES = ('list', 'clear')", sources[path], path)
         site = sources['src/page/site.caddy.in']
         # Valid names reach the rendered scripts; every other name gets the explanation instead of a bare 404.
         invalid = site.split('@page_invalid_scripts {', 1)[1].split('\n    }\n', 1)[0]

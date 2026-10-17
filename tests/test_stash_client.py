@@ -23,6 +23,7 @@ spec.loader.exec_module(writer)
 
 
 PAGE_SCRIPT = re.compile(r'/page/([^/]+)/(upload|delete)')
+PAGE_ALL_SCRIPT = re.compile(r'/page/(list|clear)')
 PAGE_NAME_ACTION = '[[linspace: placeholder "http.regexp.page.1" ]]'
 
 
@@ -33,6 +34,10 @@ class TLSHandler(writer.Handler):
     def do_GET(self):
         if self.path == '/stash/keys':
             return self.reply(200, self.server.public_key.strip())
+        every = PAGE_ALL_SCRIPT.fullmatch(self.path)
+        if every:
+            script = build.render('src/page/all.sh.in', {'DOMAIN': self.server.auth.domain, 'PAGE_DOMAIN': self.server.auth.domain + '/page'})
+            return self.reply(200, script.replace('__ACTION__', every.group(1)))
         page = PAGE_SCRIPT.fullmatch(self.path)
         if page:
             # Stand in for Caddy's templates handler, which fills in the name from the path.
@@ -149,6 +154,47 @@ class StashClientTests(unittest.TestCase):
         result = self.run_client('q3-report/delete', route='page')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('no page is published', result.stderr)
+
+    def test_pages_are_listed_on_stdout_and_cleared_together(self):
+        self.install_key()
+        result = self.run_client('list', route='page')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '')
+        self.assertIn('No pages are published', result.stderr)
+        page = Path(self.client_dir.name) / 'page.html'
+        for name in ('q3-report', 'beijing_plan'):
+            page.write_bytes(f'<p>{name}</p>\n'.encode())
+            self.assertEqual(self.run_client(f'{name}/upload', page, route='page').returncode, 0)
+        self.run_client('upload0', self.input)
+        result = self.run_client('list', route='page')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line.split()[-1] for line in lines], [f'https://{self.domain}/page/beijing_plan', f'https://{self.domain}/page/q3-report'])
+        self.assertEqual([line.split()[-2] for line in lines], ['20', '17'])
+        self.assertRegex(lines[0], r'^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  ')
+        self.assertIn('2 published pages', result.stderr)
+        result = self.run_client('clear', route='page')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'Deleted every page on https://{self.domain}/page', result.stderr)
+        self.assertFalse(list(writer.PAGES.iterdir()))
+        # Stash text channels are not pages.
+        self.assertTrue((writer.DATA / 'download0').exists())
+        self.assertEqual(self.run_client('list', route='page').stdout, '')
+
+    def test_page_list_needs_an_authorized_key_and_reserved_names_are_refused(self):
+        self.install_key(key=self.other_key)
+        result = self.run_client('list', route='page')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('No authorized SSH identity', result.stderr)
+        self.assertEqual(result.stdout, '')
+        self.install_key()
+        page = Path(self.client_dir.name) / 'page.html'
+        page.write_bytes(b'<p>page</p>\n')
+        for name in ('list', 'clear'):
+            result = self.run_client(f'{name}/upload', page, route='page')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('reserved', result.stderr)
+        self.assertFalse(list(writer.PAGES.iterdir()))
 
     def test_page_scripts_refuse_a_missing_name_invalid_files_and_warn_on_non_html(self):
         self.install_key()

@@ -28,6 +28,10 @@ MAX_PAGES = 64
 CHANNEL = re.compile(r'/stash/download([0-7])')
 # A page name is also its public path on the page host; Caddy routes use the same pattern.
 PAGE = re.compile(r'/stash/page/([a-z0-9][a-z0-9_-]{0,47})')
+# Signed GET lists every page and signed DELETE removes them all; there is no public index.
+PAGE_INDEX = '/stash/pages'
+# The page host serves its list and clear scripts at these paths, so no page may take them.
+RESERVED_PAGES = ('list', 'clear')
 CLEAR = '/stash/clear'
 DATA = Path('/var/lib/stashd')
 # Set by --pages; without it page writes are unknown routes.
@@ -57,6 +61,11 @@ def store(target, data):
         os.replace(temporary, target)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def stored_pages():
+    """Published pages by name; interrupted temporary files start with a dot and are not pages."""
+    return sorted(path for path in PAGES.iterdir() if not path.name.startswith('.'))
 
 
 class Authentication:
@@ -195,6 +204,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return None
         return length if length >= 0 else None
 
+    def has_body(self):
+        return bool(self.headers.get_all('Transfer-Encoding')) or self.headers.get_all('Content-Length', ['0']) != ['0']
+
     def authenticate(self, data):
         headers = ('X-Linspace-Challenge', 'X-Linspace-Signature')
         if any(len(self.headers.get_all(name, [])) != 1 for name in headers):
@@ -211,6 +223,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         page = PAGE.fullmatch(self.request_path()) if PAGES else None
         if not channel and not page:
             return self.reply(404, 'Unknown channel or page.')
+        if page and page.group(1) in RESERVED_PAGES:
+            return self.reply(403, 'This name belongs to a page-host script; choose another.')
         limit = MAX_PAGE_SIZE if page else MAX_SIZE
         length = self.declared_length()
         if length is None:
@@ -238,7 +252,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         target = PAGES / page.group(1)
         # Count and write under one lock so parallel uploads of new names cannot pass the limit.
         with PAGE_LOCK:
-            full = not target.exists() and sum(1 for p in PAGES.iterdir() if not p.name.startswith('.')) >= MAX_PAGES
+            full = not target.exists() and len(stored_pages()) >= MAX_PAGES
             if not full:
                 store(target, data)
         if full:
@@ -247,12 +261,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         page = PAGE.fullmatch(self.request_path()) if PAGES else None
-        if not page:
+        every = PAGES is not None and self.request_path() == PAGE_INDEX
+        if not page and not every:
             return self.do_unsupported()
-        if self.headers.get_all('Transfer-Encoding') or self.headers.get_all('Content-Length', ['0']) != ['0']:
+        if self.has_body():
             return self.reply(400, 'No body is expected.')
         if not self.authenticate(b''):
             return
+        if every:
+            with PAGE_LOCK:
+                for path in stored_pages():
+                    path.unlink(missing_ok=True)
+            return self.reply(204)
         try:
             (PAGES / page.group(1)).unlink()
         except FileNotFoundError:
@@ -273,6 +293,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/stash/challenge':
             return self.reply(200, self.server.auth.challenge())
+        if PAGES is not None and self.request_path() == PAGE_INDEX:
+            if self.has_body():
+                return self.reply(400, 'No body is expected.')
+            if not self.authenticate(b''):
+                return
+            # One page per line: name, size in bytes and modification time in Unix seconds.
+            lines = []
+            for path in stored_pages():
+                try:
+                    info = path.stat()
+                except FileNotFoundError:
+                    continue
+                lines.append(f'{path.name}\t{info.st_size}\t{int(info.st_mtime)}')
+            return self.reply(200, '\n'.join(lines))
         self.reply(405, 'Only PUT and POST are served here.')
 
     def do_HEAD(self):

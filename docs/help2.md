@@ -72,9 +72,11 @@ Publish one self-contained HTML file as a web page. The name is part of each add
 ```sh
 curl -fsSL https://page.your-domain.cn/report/upload | bash -s -- 'report.html'
 curl -fsSL https://page.your-domain.cn/report/delete | bash
+curl -fsSL https://page.your-domain.cn/list | bash
+curl -fsSL https://page.your-domain.cn/clear | bash
 ```
 
-The page opens at `https://page.your-domain.cn/report` with the site's filing number below it. Uploading again replaces it. Each file is UTF-8 up to 4 MiB; inline images and styles, or load them from `https://` addresses, because relative files are not published.
+The page opens at `https://page.your-domain.cn/report` with the site's filing number below it. Uploading again replaces it. `list` prints every page with its time and size, and `clear` deletes them all; both need the same key, and `list` and `clear` cannot be page names. Each file is UTF-8 up to 4 MiB; inline images and styles, or load them from `https://` addresses, because relative files are not published.
 
 ## Uninstall
 

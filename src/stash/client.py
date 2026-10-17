@@ -9,11 +9,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 MAX_SIZE = 1024 * 1024
 MAX_PAGE_SIZE = 4 * 1024 * 1024
 PAGE_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,47}')
+# The page host serves its list and clear scripts at these paths, so no page may take them.
+RESERVED_PAGES = ('list', 'clear')
 PROTOCOL = 'linspace-stash-v1'
 CHALLENGE_TTL = 90
 # Signing must finish well inside the challenge lifetime, including a passphrase or FIDO touch.
@@ -91,8 +94,8 @@ def request(base_url, path, temporary, method='GET', data=None, headers=(), limi
     return int(result.stdout), body
 
 
-def signed_write(base_url, domain, method, path, data, identity, authorized, temporary):
-    """Fetch a challenge, sign it, verify locally and send the write. Returns the HTTP status."""
+def signed_request(base_url, domain, method, path, data, identity, authorized, temporary):
+    """Fetch a challenge, sign it, verify locally and send the request. Returns the HTTP status and body."""
     status, challenge_bytes = request(base_url, '/stash/challenge', temporary, limit=512)
     challenge = challenge_bytes.decode('ascii').strip()
     if status != 200 or not re.fullmatch(r'[0-9a-f]{64}\.[0-9]{10,12}\.[0-9a-f]{64}', challenge):
@@ -116,16 +119,31 @@ def signed_write(base_url, domain, method, path, data, identity, authorized, tem
     if verified.returncode:
         raise ValueError('The selected SSH key is not authorized by this site.')
     signature = base64.b64encode(sigfile.read_bytes()).decode('ascii')
-    status, _ = request(base_url, path, temporary, method, data,
-                        [('X-Linspace-Challenge', challenge), ('X-Linspace-Signature', signature)], limit=4096)
-    return status
+    # A signed read carries no body; only the page list returns more than a short status line.
+    return request(base_url, path, temporary, method, None if method == 'GET' else data,
+                   [('X-Linspace-Challenge', challenge), ('X-Linspace-Signature', signature)], limit=65536 if method == 'GET' else 4096)
+
+
+def print_pages(body, page_url):
+    """Print one published page per line on stdout: modification time, size in bytes and address."""
+    pages = []
+    for line in body.decode('utf-8').splitlines():
+        fields = line.split('\t')
+        if len(fields) != 3 or not PAGE_NAME.fullmatch(fields[0]) or not all(re.fullmatch(r'[0-9]{1,12}', field) for field in fields[1:]):
+            raise RuntimeError('Unexpected page list from the site.')
+        pages.append(fields)
+    for name, size, modified in pages:
+        print(f'{time.strftime("%Y-%m-%d %H:%M", time.localtime(int(modified)))}  {int(size):>9}  {page_url}/{name}')
+    return len(pages)
 
 
 def main(base_url, action, argv=None, page=None, page_url=None):
-    """Run one write: uploadN or clear for Stash, page-upload or page-delete for the named page."""
+    """Run one request: uploadN or clear for Stash, page-upload or page-delete for the named page, page-list or page-clear for all pages."""
     uploading = action.startswith('upload') or action == 'page-upload'
-    parser = argparse.ArgumentParser(description='Publish a single HTML page using an authorized SSH key.' if action.startswith('page-')
-                                     else 'Write public Stash text using an authorized SSH key.')
+    named = action in ('page-upload', 'page-delete')
+    descriptions = {'page-upload': 'Publish a single HTML page', 'page-delete': 'Delete a published page',
+                    'page-list': 'List published pages', 'page-clear': 'Delete every published page'}
+    parser = argparse.ArgumentParser(description=descriptions.get(action, 'Write public Stash text') + ' using an authorized SSH key.')
     if uploading:
         parser.add_argument('file', type=Path)
     parser.add_argument('-i', '--identity', default=os.environ.get('STASH_IDENTITY'),
@@ -136,9 +154,11 @@ def main(base_url, action, argv=None, page=None, page_url=None):
         for command in ('curl', 'ssh-keygen', 'ssh-add'):
             if not shutil.which(command):
                 raise ValueError(f'{command} is required; install curl and OpenSSH client tools.')
-        if action.startswith('page-') and not PAGE_NAME.fullmatch(page or ''):
+        if named and not PAGE_NAME.fullmatch(page or ''):
             raise ValueError(f'This script carries no valid page name. Download it from {page_url}/NAME/{action.removeprefix("page-")}, '
                              'where NAME has up to 48 lowercase letters, digits, hyphens or underscores and starts with a letter or digit.')
+        if named and page in RESERVED_PAGES:
+            raise ValueError(f'The page name {page!r} is reserved for the {page_url}/{page} script; choose another.')
         os.umask(0o077)
         if uploading:
             if not args.file.is_file():
@@ -158,6 +178,10 @@ def main(base_url, action, argv=None, page=None, page_url=None):
                 method, path = 'PUT', '/stash/download' + action.removeprefix('upload')
         elif action == 'page-delete':
             data, method, path = b'', 'DELETE', '/stash/page/' + page
+        elif action == 'page-list':
+            data, method, path = b'', 'GET', '/stash/pages'
+        elif action == 'page-clear':
+            data, method, path = b'', 'DELETE', '/stash/pages'
         else:
             data, method, path = b'', 'POST', '/stash/clear'
         domain = base_url.removeprefix('https://')
@@ -172,14 +196,14 @@ def main(base_url, action, argv=None, page=None, page_url=None):
             if len(authorized) > 64 or '' in authorized:
                 raise ValueError('Invalid authorized-key list from the site.')
             identity = choose_identity(authorized, temporary, args.identity)
-            status = signed_write(base_url, domain, method, path, data, identity, authorized, temporary)
+            status, body = signed_request(base_url, domain, method, path, data, identity, authorized, temporary)
             if status == 401:
                 # A slow passphrase or FIDO touch can outlive the first challenge; the key is now unlocked.
                 linspace_log('WARN', 'The site rejected the signature (HTTP 401); retrying once with a fresh challenge.')
-                status = signed_write(base_url, domain, method, path, data, identity, authorized, temporary)
-            if status != 204:
+                status, body = signed_request(base_url, domain, method, path, data, identity, authorized, temporary)
+            if status != (200 if method == 'GET' else 204):
                 detail = {401: 'signature rejected or challenge expired; rerun with an authorized key',
-                          408: 'upload timed out; check the connection and retry',
+                          403: 'this page name is reserved', 408: 'upload timed out; check the connection and retry',
                           429: 'server busy; retry shortly', 413: f'file exceeds {limit // (1024 * 1024)} MiB',
                           415: 'file is not valid UTF-8 text', 503: 'authentication service unavailable',
                           507: 'the site holds its maximum number of pages; delete one first'}.get(status, 'unexpected response')
@@ -187,11 +211,16 @@ def main(base_url, action, argv=None, page=None, page_url=None):
                     detail = f'no page is published at {page_url}/{page}'
                 elif status == 404 and action == 'page-upload':
                     detail = 'this site does not publish pages'
-                raise RuntimeError(f'{"Page" if action.startswith("page-") else "Stash"} write failed (HTTP {status}): {detail}.')
+                raise RuntimeError(f'{"Page" if action.startswith("page-") else "Stash"} {"list" if method == "GET" else "write"} failed (HTTP {status}): {detail}.')
         if action == 'page-upload':
             linspace_log('OK', f'Published {len(data)} bytes: {page_url}/{page}')
         elif action == 'page-delete':
             linspace_log('OK', f'Deleted {page_url}/{page}')
+        elif action == 'page-list':
+            count = print_pages(body, page_url)
+            linspace_log('OK', f'{count} published page{"" if count == 1 else "s"} on {page_url}' if count else f'No pages are published on {page_url}')
+        elif action == 'page-clear':
+            linspace_log('OK', f'Deleted every page on {page_url}')
         elif method == 'PUT':
             linspace_log('OK', f'Uploaded {len(data)} bytes; public URL: {base_url}{path}')
         else:
