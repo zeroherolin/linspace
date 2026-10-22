@@ -27,7 +27,7 @@ class DeploymentTests(unittest.TestCase):
                 path = Path(value)
                 return root / path.relative_to('/') if path.is_absolute() and not path.is_relative_to(root) else path
 
-            for name in ('MAIN', 'SITE', 'FRAGMENT', 'LEGACY_TOKEN', 'SIGNERS', 'CURRENT', 'STATE', 'LOCK'):
+            for name in ('MAIN', 'SITE', 'FRAGMENT', 'LEGACY_TOKEN', 'SIGNERS', 'CURRENT', 'RELEASES', 'BACKUPS', 'STATE', 'LOCK'):
                 stack.enter_context(patch.object(deploy, name, host_path(getattr(deploy, name))))
             stack.enter_context(patch.object(deploy, 'Path', side_effect=host_path))
             stack.enter_context(patch.object(deploy.os, 'geteuid', return_value=0))
@@ -129,6 +129,38 @@ class DeploymentTests(unittest.TestCase):
             host.restore.side_effect = restore
             deploy.main(['--rollback', str(backup)])
             host.restore.assert_called_once_with(backup)
+
+    def test_prune_keeps_recent_backups_and_the_releases_they_restore(self):
+        with tempfile.TemporaryDirectory(prefix='linspace-prune-') as tmp:
+            root = Path(tmp)
+            releases, backups = root / 'srv/releases', root / 'backups'
+            ids = [f'{i:020x}' for i in range(8)]
+            for release_id in ids:
+                (releases / release_id).mkdir(parents=True)
+            stale = releases / '.staging-old'
+            stale.mkdir()
+            unrelated = releases / 'notes'
+            unrelated.mkdir()
+            current = root / 'srv/current'
+            current.symlink_to('releases/' + ids[7])
+            backups.mkdir()
+            # Backup i was taken while release i was live; the newest five survive.
+            stamps = [f'2026101{i}T000000Z-00000{i}' for i in range(7)]
+            for i, stamp in enumerate(stamps):
+                (backups / stamp).mkdir()
+                (backups / stamp / 'snapshot.json').write_text(json.dumps({'current': 'releases/' + ids[i]}))
+            old = deploy.time.time() - 7200
+            deploy.os.utime(stale, (old, old))
+            with patch.object(deploy, 'RELEASES', releases), patch.object(deploy, 'BACKUPS', backups), patch.object(deploy, 'CURRENT', current):
+                deploy.prune()
+            self.assertEqual(sorted(p.name for p in backups.iterdir()), stamps[2:])
+            self.assertEqual(sorted(p.name for p in releases.iterdir()), [*ids[2:], 'notes'])
+            # A backup that cannot be read keeps every release it might need.
+            (backups / stamps[3] / 'snapshot.json').write_text('{')
+            (releases / ids[0]).mkdir()
+            with patch.object(deploy, 'RELEASES', releases), patch.object(deploy, 'BACKUPS', backups), patch.object(deploy, 'CURRENT', current):
+                deploy.prune()
+            self.assertTrue((releases / ids[0]).is_dir())
 
     def test_fresh_deployment_does_not_stop_missing_units(self):
         with patch.object(deploy, 'run', return_value=SimpleNamespace(stdout='not-found\n')) as run:

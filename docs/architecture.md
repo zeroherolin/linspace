@@ -49,7 +49,7 @@ All routes except published pages are served on the canonical `domain` only. Eve
 | `/stash/page/NAME` | Signed PUT publishes a page and signed DELETE removes it; needs `page_domain` |
 | `/stash/pages` | Signed GET lists pages as `NAME`, size and Unix modification time, tab-separated; signed DELETE removes every page; needs `page_domain` |
 
-Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
+Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; Claude Code's comes from Anthropic's signed native-build manifest, as a zstd-compressed executable whose uncompressed checksum is also pinned; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
 
 ## Pages
 
@@ -75,9 +75,9 @@ Every response carries `no-store`, `nosniff`, `X-Robots-Tag: noindex, nofollow` 
 | `config/codex/models-1m.json` | Model entries exported from the official Codex CLI |
 | `config/codex/catalog-source.json` | Source version, export hash, overrides and output hash |
 
-Each model keeps its official instructions, capabilities, reasoning choices and service-tier metadata. Only `context_window` (1,000,000), `max_context_window` (1,050,000) and `effective_context_window_percent` (100) are overridden, matching the 1,050,000-token windows documented for [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) and [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol). The overrides set the client's budget; they do not grant provider capacity or model access.
+Each model keeps its official instructions, capabilities, reasoning choices and service-tier metadata. Only `context_window` (1,000,000), `max_context_window` (1,050,000) and `effective_context_window_percent` (100) are overridden, matching the 1,050,000-token windows documented for [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra), [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) and [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol); the bundled catalog's own windows are smaller. The overrides set the client's budget; they do not grant provider capacity or model access.
 
-The preset compacts at 900,000 tokens, uses `xhigh` reasoning, an OpenAI-compatible relay, `on-request` / `auto_review` approvals and `danger-full-access`. `cli_auth_credentials_store = "file"` keeps API credentials in the client's `auth.json`; credentials are never bundled. Offline checks validate hashes, model IDs, context bounds, reasoning levels and TOML consistency against the [official schema](https://developers.openai.com/codex/config-schema.json), not the complete product schema. Refresh with `python3 scripts/codex_catalog.py --refresh` from a reviewed CLI version, then run `./linspace check`.
+The preset compacts at 900,000 tokens, uses `xhigh` reasoning, an OpenAI-compatible relay, `on-request` / `auto_review` approvals and `danger-full-access`. `cli_auth_credentials_store = "file"` keeps API credentials in the client's `auth.json`; credentials are never bundled. Since Codex 0.149 a custom provider sends those saved credentials only with `requires_openai_auth = true`, which the preset sets; the auth script warns when a local `config.toml` turns it off. Offline checks validate hashes, model IDs, context bounds, reasoning levels and TOML consistency against the [official schema](https://developers.openai.com/codex/config-schema.json), not the complete product schema. Refresh with `python3 scripts/codex_catalog.py --refresh` from a reviewed CLI version, then run `./linspace check`.
 
 The auth script writes `auth.json` with mode `600` through a staged replacement that rolls back on failure and keeps no backup; its prompts and flags are in the [user guide](usage.md#codex).
 
@@ -85,7 +85,7 @@ The auth script writes `auth.json` with mode `600` through a staged replacement 
 
 | Path | Purpose |
 | --- | --- |
-| `/srv/linspace/releases/` | Immutable public releases: directories 0755, files 0644 |
+| `/srv/linspace/releases/` | Immutable public releases: directories 0755, files 0644; the active one and those kept backups restore |
 | `/srv/linspace/current` | Active release symlink |
 | `/etc/caddy/sites-enabled/linspace.caddy` | Domain, alias and page-host routes |
 | `/etc/caddy/linspace.d/stash.caddy` | Stash routes; root:caddy 0640 |
@@ -94,11 +94,11 @@ The auth script writes `auth.json` with mode `600` through a staged replacement 
 | `/run/stashd/ssh.sock` | Writer socket; stash:caddy 0660 |
 | `/var/lib/stashd/` | Public channel data; published pages in `pages/` |
 | `/var/lib/linspace/state.json` | Deployment metadata |
-| `/var/backups/linspace/` | Configuration, authentication, code, units and release pointer |
+| `/var/backups/linspace/` | Configuration, authentication, code, units and release pointer; the newest five |
 
 Caddy serves only allowlisted paths from `/srv/linspace/current`, channel data from `/var/lib/stashd` and pages from `/var/lib/stashd/pages`. The checkout, backups and service code are outside public roots. The dedicated `stash` account verifies writes through the Unix socket and has no TCP listener. When linspace owns `/etc/caddy/Caddyfile` (a fresh installation or the earlier import-only layout), the file starts with a marker comment and global `servers { timeouts { read_header 10s; read_body 60s } }`, then imports `sites-enabled/*.caddy` so that site files other projects keep beside `linspace.caddy` survive redeployment; in a shared Caddyfile only the import of `linspace.caddy` is added and the operator keeps control of global options.
 
-Deployment takes a lock, copies the release into an immutable directory, snapshots managed files, activates them and switches the symlink. Rollback restores the snapshot and the previous pointer but not channel contents or pages. Uploads replace files atomically; clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry.
+Deployment takes a lock, copies the release into an immutable directory, snapshots managed files, activates them and switches the symlink, then prunes backups and releases beyond the last five deployments. Rollback restores the snapshot and the previous pointer but not channel contents or pages. Uploads replace files atomically; clearing channels is sequential, not a transaction against concurrent uploads. There is no content history or expiry.
 
 ## Stash authentication
 

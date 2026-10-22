@@ -24,6 +24,16 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(saved['stash_public_key_files'], paths)
                 self.assertEqual(saved['ssh_public_key_file'], '')
 
+    def test_configure_creates_a_private_profile_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp) / 'local' / 'site.json'
+            command = [sys.executable, str(ROOT / 'scripts/cli.py'), 'configure', '--config', str(profile), '--internal-test', '--non-interactive',
+                       '--domain', 'private.example.test', '--site-name', 'Private', '--icp-number', '', '--ssh-public-key-file', '']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(profile.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(profile.stat().st_mode & 0o777, 0o600)
+
     def test_configure_upgrades_old_profile_and_rejects_invalid_codex_without_replacing_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

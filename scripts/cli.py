@@ -56,7 +56,10 @@ def configure(args):
                         + (f' [{previous}]' if previous else '') + ': ').strip()
         if entered:
             current['page_domain'] = None if entered == '-' else entered
-    args.config.parent.mkdir(parents=True, exist_ok=True)
+    # Operator inputs stay private: the checkout's local/ folder is 0700 and the profile 0600.
+    args.config.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if args.config.parent.resolve() == (ROOT / 'local').resolve():
+        args.config.parent.chmod(0o700)
     fd, temporary = tempfile.mkstemp(prefix='.site-', suffix='.json', dir=args.config.parent)
     os.close(fd)
     pending = Path(temporary)

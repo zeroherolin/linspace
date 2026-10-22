@@ -43,7 +43,7 @@ Python 3.9+ is required; the TOML parser is bundled. No Node.js, Docker or datab
 ./linspace configure
 ```
 
-The wizard saves `local/site.json`, which Git ignores. Enter keeps the current value.
+The wizard saves `local/site.json` (mode 600, in a private `local/` folder), which Git ignores. Enter keeps the current value.
 
 | Setting | What to enter |
 | --- | --- |
@@ -71,7 +71,7 @@ Client settings are public. Known credential fields are rejected, but review the
 sudo ./linspace deploy
 ```
 
-Deployment installs Caddy when needed, obtains HTTPS certificates, backs up managed state and activates the site. Existing channel data and pages are preserved. [Existing Caddy and recovery](docs/operations.md).
+Deployment installs Caddy when needed, obtains HTTPS certificates, backs up managed state and activates the site, keeping the last five backups and the releases they restore. Existing channel data and pages are preserved. [Existing Caddy and recovery](docs/operations.md).
 
 ### 5. Verify
 

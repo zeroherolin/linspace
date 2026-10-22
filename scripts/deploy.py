@@ -30,6 +30,11 @@ FRAGMENT = Path('/etc/caddy/linspace.d/stash.caddy')
 LEGACY_TOKEN = Path('/etc/linspace/stash-token')
 SIGNERS = Path('/usr/local/lib/stashd/allowed_signers')
 CURRENT = Path('/srv/linspace/current')
+RELEASES = Path('/srv/linspace/releases')
+BACKUPS = Path('/var/backups/linspace')
+# Like the other sites that share this Caddy, keep the last few deployments: each backup
+# keeps the release it would restore, and nothing else outlives a rollback's need for it.
+KEEP_BACKUPS = 5
 STATE = Path('/var/lib/linspace/state.json')
 LOCK = Path('/var/lib/linspace/deploy.lock')
 IMPORT = 'import /etc/caddy/sites-enabled/linspace.caddy'
@@ -186,6 +191,31 @@ def merged_main(text, domain, fresh=False, adopt=False, aliases=(), page_domain=
     return text.rstrip() + '\n\n' + IMPORT + '\n'
 
 
+def prune():
+    """Drop all but the newest backups, then every release neither they nor the live link use."""
+    if not BACKUPS.is_dir() or not RELEASES.is_dir():
+        return
+    backups = sorted(p for p in BACKUPS.iterdir() if p.is_dir() and not p.is_symlink() and re.fullmatch(r'\d{8}T\d{6}Z-[0-9a-f]{6}', p.name))
+    for old in backups[:-KEEP_BACKUPS]:
+        shutil.rmtree(old)
+    needed = {CURRENT.resolve()}
+    for backup in backups[-KEEP_BACKUPS:]:
+        try:
+            target = json.loads((backup / 'snapshot.json').read_text())['current']
+        except (OSError, ValueError, KeyError, TypeError):
+            linspace_log('WARN', f'Unreadable backup {backup}; releases were not pruned.')
+            return
+        if target is not None:
+            needed.add((CURRENT.parent / target).resolve())
+    for release in RELEASES.iterdir():
+        if release.is_symlink():
+            continue
+        if re.fullmatch('[0-9a-f]{20}', release.name) and release.is_dir() and release.resolve() not in needed:
+            shutil.rmtree(release)
+        elif release.name.startswith('.staging-') and time.time() - release.lstat().st_mtime > 3600:
+            shutil.rmtree(release, ignore_errors=True)  # left by a deployment that was killed
+
+
 def snapshot(directory):
     directory.mkdir(parents=True, mode=0o700)
     os.chmod(directory, 0o700)
@@ -278,7 +308,7 @@ def apply(release, args):
         for parent in ['/srv/linspace', '/etc/linspace', '/var/lib/linspace', '/usr/local/lib/stashd', '/etc/caddy/sites-enabled', '/etc/caddy/linspace.d']:
             if Path(parent).is_symlink():
                 raise ValueError(f'Refusing managed symlink directory: {parent}')
-        if CURRENT.is_symlink() and (not CURRENT.is_dir() or not CURRENT.resolve().is_relative_to(Path('/srv/linspace/releases'))):
+        if CURRENT.is_symlink() and (not CURRENT.is_dir() or not CURRENT.resolve().is_relative_to(RELEASES)):
             raise ValueError('The active release symlink must point to an existing managed release')
         if CURRENT.exists() and not CURRENT.is_symlink():
             raise ValueError('/srv/linspace/current must be absent or the managed release symlink')
@@ -299,7 +329,7 @@ def apply(release, args):
                 linspace_log('WARN', f'The backup recorded by the previous deployment is missing: {previous}. Rollback to that state is no longer possible.')
         main_text = merged_main(MAIN.read_text() if MAIN.exists() else '', meta['domain'], fresh=fresh_caddy, adopt=args.adopt_existing, aliases=meta.get('alias_domains', []), page_domain=meta.get('page_domain'))
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + secrets.token_hex(3)
-        backup = Path('/var/backups/linspace') / stamp
+        backup = BACKUPS / stamp
         snapshot(backup)
         linspace_log('INFO', f'Backup: {backup}')
         try:
@@ -309,7 +339,7 @@ def apply(release, args):
                     raise ValueError('Existing stash account is not a dedicated service account')
             except KeyError:
                 run(['useradd', '--system', '--user-group', '--home-dir', '/var/lib/stashd', '--no-create-home', '--shell', '/usr/sbin/nologin', 'stash'])
-            public_release = Path('/srv/linspace/releases') / release_id
+            public_release = RELEASES / release_id
             public_release.parent.mkdir(parents=True, exist_ok=True)
             if public_release.is_symlink():
                 raise ValueError('Release directories must not be symlinks')
@@ -360,6 +390,10 @@ def apply(release, args):
                 linspace_log('ERROR', f'Automatic restore failed: {error}. Backup: {backup}')
             raise
         linspace_log('OK', f'Activated release {release_id}; Stash uses SSH signatures.')
+        try:
+            prune()
+        except OSError as error:
+            linspace_log('WARN', f'Could not remove old backups or releases: {error}')
         if args.skip_verify:
             linspace_log('WARN', 'HTTPS verification skipped. Run ./linspace verify before declaring the site ready.')
             return
@@ -387,7 +421,7 @@ def main(argv=None):
     parser.add_argument('--rollback', type=Path, help='restore an exact backup directory under /var/backups/linspace')
     args = parser.parse_args(argv)
     if args.rollback:
-        if os.geteuid() != 0 or args.rollback.is_symlink() or args.rollback.resolve().parent != Path('/var/backups/linspace'):
+        if os.geteuid() != 0 or args.rollback.is_symlink() or args.rollback.resolve().parent != BACKUPS:
             raise ValueError('Rollback requires root and a direct backup directory under /var/backups/linspace')
         with deployment_lock():
             restore(args.rollback)

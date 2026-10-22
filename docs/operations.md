@@ -104,7 +104,7 @@ Rollback restores managed files, authentication and the release pointer, but kee
 
 ## Backups and cleanup
 
-Backups under `/var/backups/linspace/` and releases under `/srv/linspace/releases/` are retained until deliberately removed. Keep the active release, releases referenced by retained backups, and Caddy certificate storage. `/var/lib/linspace/state.json` names the backup taken by the last deployment; if that directory has been removed, the next deployment warns that rollback to the previous state is no longer possible.
+Each deployment keeps the newest five backups under `/var/backups/linspace/` and, under `/srv/linspace/releases/`, only the active release and those the kept backups restore; older ones are removed after activation. If a kept backup cannot be read, no release is removed. Keep Caddy certificate storage. `/var/lib/linspace/state.json` names the backup taken by the last deployment; if that directory has been removed, the next deployment warns that rollback to the previous state is no longer possible.
 
 Channel files are `/var/lib/stashd/download0` through `download7`. A removed file returns 404; an uploaded empty file returns 200. Published pages are the files in `/var/lib/stashd/pages/`, named as in their addresses; list them there and remove one with its delete script or by deleting the file. Deployment, rollback and Stash clear leave pages untouched.
 
