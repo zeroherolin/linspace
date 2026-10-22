@@ -81,7 +81,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(['bash', '-n'], input=auth, text=True, check=True)
             models = release / 'site/codex/models_1m'
             self.assertEqual(models.read_bytes(), (ROOT / 'config/codex/models-1m.json').read_bytes())
-            self.assertEqual({m['slug']: m['context_window'] for m in json.loads(models.read_text())['models']}, {'gpt-6-astra': 1000000, 'gpt-5.6-sol': 1000000})
+            self.assertEqual({m['slug']: m['context_window'] for m in json.loads(models.read_text())['models']}, dict.fromkeys(['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-5.6-sol'], 1000000))
             self.assertNotIn('ssh_public_key_file', (release / 'release.json').read_text())
             sha = hashlib.sha256((root / 'dist/linspace-site.tar.gz').read_bytes()).hexdigest()
             release = build.build(config, root / 'dist', internal=True)

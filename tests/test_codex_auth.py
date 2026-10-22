@@ -189,6 +189,22 @@ class CodexAuthTests(unittest.TestCase):
         self.assertFalse((self.root / 'unexpected').exists())
         self.assertEqual(list(self.config_dir.iterdir()), [self.auth_file])
 
+    def test_provider_that_ignores_saved_credentials_is_reported(self):
+        self.config_dir.mkdir(mode=0o700)
+        config = self.config_dir / 'config.toml'
+        config.write_text('model_provider = "relay"\n[model_providers.relay]\nbase_url = "https://relay.example.test/v1"\nrequires_openai_auth = false\n')
+        original = config.read_bytes()
+        for args in (('-t', 'relay-test-value'), ('-t', 'relay-test-value')):
+            result = self.run_script(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('requires_openai_auth = false', result.stderr)
+            self.assertIn('https://auth.example.test/codex/config', result.stderr)
+        self.assertEqual(config.read_bytes(), original)
+        config.write_text(original.decode().replace('= false', '= true'))
+        result = self.run_script('-t', 'relay-test-value')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('WARN', result.stderr)
+
     def test_replacement_keeps_no_backups_and_repeat_is_idempotent(self):
         self.config_dir.mkdir(mode=0o755)
         previous = '{"tokens":{"access_token":"old-test-value"}}\n'

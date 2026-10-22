@@ -7,6 +7,15 @@ set -Eeuo pipefail
 linspace_auth_tmp=''
 
 fail() { linspace_log ERROR "$*"; exit 1; }
+# Since Codex 0.149, a custom provider sends saved credentials only with requires_openai_auth = true.
+warn_provider_auth() {
+    local config=$1/config.toml
+    [[ -f $config ]] || return 0
+    if grep -Eq '^[[:space:]]*requires_openai_auth[[:space:]]*=[[:space:]]*false' "$config"; then
+        linspace_log WARN 'config.toml sets requires_openai_auth = false, so Codex will not send this token.'
+        linspace_log INFO "Download the site configuration again: curl -fsSL https://@@DOMAIN@@/codex/config -o $config"
+    fi
+}
 usage() {
     cat <<'USAGE'
 Usage: curl -fsSL https://@@DOMAIN@@/codex/auth | bash -s -- [-t TOKEN] [-u BASE_URL]
@@ -75,6 +84,7 @@ sys.path.insert(0, str(_vendor_path))
 @@include:src/codex/provider_auth.py@@
 provider_auth_main()
 LINSPACE_CODEX_PROVIDER_PY
+        warn_provider_auth "$config_dir"
         return
     fi
 
@@ -93,12 +103,14 @@ LINSPACE_CODEX_PROVIDER_PY
             rm -f -- "$linspace_auth_tmp"
             linspace_auth_tmp=''
             linspace_log OK "Credentials already saved in $auth_file"
+            warn_provider_auth "$config_dir"
             return 0
         fi
     fi
     mv -f -- "$linspace_auth_tmp" "$auth_file"
     linspace_auth_tmp=''
     linspace_log OK "Saved API credentials to $auth_file (mode 600)."
+    warn_provider_auth "$config_dir"
     linspace_log INFO 'Token validity is checked when Codex connects to your provider.'
 }
 

@@ -8,7 +8,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_IDS = ('gpt-6-astra', 'gpt-5.6-sol')
+# Official catalog order: newest flagship first.
+MODEL_IDS = ('gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-5.6-sol')
 OVERRIDES = {'context_window': 1000000, 'max_context_window': 1050000, 'effective_context_window_percent': 100}
 
 
@@ -95,7 +96,7 @@ def generate(source_data, version):
     if len(by_id) != len(entries):
         raise ValueError('The exported Codex catalog has duplicate model IDs')
     if any(slug not in by_id for slug in MODEL_IDS):
-        raise ValueError('The installed Codex catalog does not include both configured models')
+        raise ValueError('The installed Codex catalog does not include every configured model')
     models = []
     for slug in MODEL_IDS:
         model = copy.deepcopy(by_id[slug])
