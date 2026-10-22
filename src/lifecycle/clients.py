@@ -46,7 +46,8 @@ class Client:
         self.find_npm(directories)
         candidates += [prefix / 'bin' / self.name for _, prefix in self.npm.values()]
         for root in self.roots:
-            patterns = ['*/package/claude', 'versions/*', 'node_modules/.bin/claude'] if self.name == 'claude' else ['*/bin/codex', 'releases/*/bin/codex']
+            # */claude is the official native executable; */package/claude came from earlier npm-packaged releases.
+            patterns = ['*/claude', '*/package/claude', 'versions/*', 'node_modules/.bin/claude'] if self.name == 'claude' else ['*/bin/codex', 'releases/*/bin/codex']
             for pattern in patterns:
                 candidates += list(root.glob(pattern))
         if self.system:

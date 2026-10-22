@@ -116,6 +116,33 @@ linspace_asset() (
     cp -- "$cache/$ASSET_SHA" "$target"
 )
 
+# The decompressed payload of a compressed asset, checked against its upstream checksum.
+# Without the decompressor, an uncompressed upstream copy is fetched directly; it has no mirror.
+linspace_unpacked_asset() (
+    set -uo pipefail
+    name=$1 target=$2
+    linspace_asset_info "$name" || return 1
+    [[ -n $ASSET_RAW_SHA && -n $ASSET_RAW_SIZE && $ASSET_COMPRESSION =~ ^(gzip|zstd)$ ]] || return 1
+    tool=$ASSET_COMPRESSION
+    if command -v "$tool" >/dev/null 2>&1; then
+        linspace_asset "$name" "$target.packed" || return 1
+        "$tool" -dcq -- "$target.packed" > "$target"; status=$?
+        rm -f -- "$target.packed"
+        [[ $status == 0 ]] || { linspace_log ERROR "Could not decompress $name."; return 1; }
+    elif [[ -n $ASSET_RAW_URL ]]; then
+        linspace_log WARN "$tool is not installed; downloading the uncompressed package, which has no fallback mirror."
+        LINSPACE_DOWNLOAD_LABEL=$name
+        LINSPACE_DOWNLOAD_TTY=0
+        [[ ! -t 2 || ! -w /dev/tty ]] || LINSPACE_DOWNLOAD_TTY=1
+        linspace_file "$ASSET_RAW_SHA" "$ASSET_RAW_SIZE" "$ASSET_RAW_URL" environment 600 || {
+            linspace_log ERROR "Install $tool to use the verified fallback mirror, then rerun."; return 1; }
+        cp -- "${LINSPACE_DOWNLOAD_CACHE:?Missing download cache}/$ASSET_RAW_SHA" "$target" || return 1
+    else
+        linspace_log ERROR "Install $tool, then rerun."; return 1
+    fi
+    linspace_checksum "$target" "$ASSET_RAW_SHA" "$ASSET_RAW_SIZE" || { linspace_log ERROR 'Decompressed checksum mismatch.'; return 1; }
+)
+
 linspace_platform() {
     local os arch
     case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) linspace_log ERROR 'Linux or macOS is required.'; return 1 ;; esac

@@ -9,9 +9,9 @@ Commands for using a linspace site. Replace `your-domain.cn` with the site domai
 | SSH, Stash and page writes | Linux or macOS | OpenSSH 8.2+ |
 | Mihomo | Debian/Ubuntu x86_64/ARM64, root | Bash, curl, tar, gzip, diff, `sha256sum` or `shasum` |
 | tmux | Linux or macOS | apt/dnf/yum/pacman/apk, or Homebrew on macOS |
-| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | same as Mihomo |
+| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | same as Mihomo; `zstd` for Claude Code's fallback download |
 
-Download-based installers use official sources first, then verified fallback downloads. The tmux installer uses the host package manager. Installers never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
+Download-based installers use official sources first, then verified fallback downloads. Claude Code is Anthropic's official native executable, checked against the checksum in its signed release manifest; it arrives zstd-compressed, and without `zstd` only the uncompressed official download is tried. The tmux installer uses the host package manager. Installers never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
 
 ## SSH
 
@@ -94,7 +94,7 @@ curl -fsSL https://your-domain.cn/claude/config -o ~/.claude/settings.json
 chmod 600 ~/.claude/settings.json
 ```
 
-The installer reuses a working same-version or newer client; otherwise it installs the reviewed native package. Rerun to update. An installation from another source is updated with its own installer or package manager.
+The installer reuses a working same-version or newer client; otherwise it installs the reviewed official native executable. Rerun to update. An installation from another source is updated with its own installer or package manager.
 
 The download replaces `settings.json`. The [bundled preset](../config/claude/settings.json) selects `claude-opus-5-5[1m]`, Chinese responses and `xhigh` effort, and pre-approves Bash and file edits; the operator may publish a different one. It contains no credentials.
 
@@ -119,7 +119,7 @@ curl -fsSL https://your-domain.cn/codex/models_1m -o ~/.codex/models-1m.json
 chmod 600 ~/.codex/config.toml ~/.codex/models-1m.json
 ```
 
-Install and update behave as for Claude Code. The downloads replace `config.toml` and the model catalog; keep both in the same directory. The [bundled preset](../config/codex/config.toml) selects `gpt-6-astra`, `xhigh` reasoning and a 1M context budget through the relay `https://us.api.openai-next.com/v1`, with `danger-full-access` and `on-request` / `auto_review` approvals. The provider must support the selected model and context size.
+Install and update behave as for Claude Code. The downloads replace `config.toml` and the model catalog; keep both in the same directory. The [bundled preset](../config/codex/config.toml) selects `gpt-6-astra`, `xhigh` reasoning and a 1M context budget; the catalog also offers `gpt-6.1-sol`, `gpt-6-sol` and `gpt-5.6-sol` with the same budget through the relay `https://us.api.openai-next.com/v1`, with `danger-full-access` and `on-request` / `auto_review` approvals. The provider must support the selected model and context size.
 
 Save the provider token:
 

@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -11,15 +12,21 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+TOOLS = ('bash', 'tar', 'gzip', 'mktemp', 'diff', 'sha256sum', 'shasum', 'cat', 'chmod', 'mkdir', 'rm', 'rmdir', 'cp', 'mv', 'ln',
+         'readlink', 'dirname', 'basename', 'sleep', 'wc', 'tail', 'cut')
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build
 
 
 class MacOSInstallerTests(unittest.TestCase):
     def make_package(self, client, version):
+        if client == 'claude':
+            # The official native executable; served as is when zstd is unavailable.
+            data = f'#!/bin/sh\necho "{version} (Claude Code)"\n'.encode()
+            return data, hashlib.sha256(data).hexdigest()
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz') as tar:
-            files = {'package/claude': f'#!/bin/sh\necho "Claude Code {version}"\n'} if client == 'claude' else {
+            files = {
                 'bin/codex': f'#!/bin/sh\necho "codex-cli {version}"\n',
                 'bin/codex-code-mode-host': '#!/bin/sh\nexit 0\n',
                 'codex-path/rg': '#!/bin/sh\nexit 0\n',
@@ -35,11 +42,16 @@ class MacOSInstallerTests(unittest.TestCase):
         package, digest = self.make_package(client, version)
         with tempfile.TemporaryDirectory(prefix='linspace-macos-install-') as temporary:
             root = Path(temporary); home = root / 'home'; home.mkdir(); tools = root / 'tools'; tools.mkdir()
+            # Only these commands are visible, so the test never finds a real client or zstd.
+            for name in TOOLS:
+                command = shutil.which(name)
+                if command:
+                    (tools / name).symlink_to(command)
             fixture = root / 'package.tar.gz'; fixture.write_bytes(package)
             (tools / 'uname').write_text(f'#!/bin/sh\ncase "$1" in -s) echo Darwin;; *) echo {machine};; esac\n')
             (tools / 'uname').chmod(0o755)
             (tools / 'curl').write_text(
-                '#!/usr/bin/env python3\n'
+                f'#!{sys.executable}\n'
                 'import os, shutil, sys\n'
                 'from pathlib import Path\n'
                 'args=sys.argv[1:]\n'
@@ -47,18 +59,21 @@ class MacOSInstallerTests(unittest.TestCase):
                 'shutil.copyfile(os.environ["LINSPACE_FIXTURE"], target)\n'
             )
             (tools / 'curl').chmod(0o755)
+            raw = ''
+            if client == 'claude':
+                # No zstd in this PATH: the uncompressed official executable is fetched and checked.
+                raw = f'ASSET_COMPRESSION=zstd; ASSET_RAW_SHA={digest}; ASSET_RAW_SIZE={len(package)}; ASSET_RAW_URL=https://upstream.test/claude; '
+                digest = '0' * 64
             values = {
                 'DOMAIN': 'macos.example.test',
                 'CLIENT': client,
                 'CLIENT_NAME': 'Claude Code' if client == 'claude' else 'Codex',
-                'ASSET_CASES': f'{client}-darwin-{"arm64" if machine == "arm64" else "x64"}) ASSET_SHA={digest}; ASSET_SIZE={len(package)}; ASSET_URL=https://upstream.test/package; ASSET_VERSION={version}; ASSET_TARGET=; ASSET_RAW_SHA=; ASSET_PART_SHAS=({digest}); ASSET_PART_SIZES=({len(package)}); ASSET_PART_URLS=(https://fallback.test/package);;'
+                'ASSET_CASES': f'{client}-darwin-{"arm64" if machine == "arm64" else "x64"}) ASSET_SHA={digest}; ASSET_SIZE={len(package)}; ASSET_URL=https://upstream.test/package; ASSET_VERSION={version}; ASSET_TARGET=; ASSET_RAW_SHA=; {raw}ASSET_PART_SHAS=({digest}); ASSET_PART_SIZES=({len(package)}); ASSET_PART_URLS=(https://fallback.test/package);;'
             }
             script = build.render('src/lifecycle/install.sh.in', values)
             environment = {**os.environ, 'HOME': str(home), 'XDG_DATA_HOME': str(root / 'data'),
                            'XDG_CACHE_HOME': str(root / 'cache'), 'XDG_STATE_HOME': str(root / 'state'),
-                           # Keep the test hermetic: do not let real host-side
-                           # Claude/Codex binaries be discovered through PATH.
-                           'PATH': str(tools) + os.pathsep + '/usr/local/bin:/usr/bin:/bin', 'LINSPACE_FIXTURE': str(fixture),
+                           'PATH': str(tools), 'LINSPACE_FIXTURE': str(fixture),
                            'NO_COLOR': '1'}
             for key in ('BASH_ENV', 'ENV', 'SUDO_USER', 'CODEX_INSTALL_DIR'):
                 environment.pop(key, None)

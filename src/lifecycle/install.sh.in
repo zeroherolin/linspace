@@ -174,10 +174,15 @@ main() (
             *) fail "Existing $existing_version at $existing. Update it with its original installer or package manager; /$CLIENT/uninstall removes all recognized installations before switching." ;;
         esac
     fi
-    linspace_asset "$CLIENT-$platform" "$WORK/client.tar.gz" || fail 'All download attempts failed. Rerun this command to reuse verified downloads.'
-    # Extract into a fresh directory; never extract over user configuration or an existing install.
+    # Unpack into a fresh directory; never extract over user configuration or an existing install.
     mkdir "$WORK/package"
-    tar -xzf "$WORK/client.tar.gz" -C "$WORK/package"
+    if [[ $CLIENT == claude ]]; then
+        # The official native executable, checked against the checksum in Anthropic's signed release manifest.
+        linspace_unpacked_asset "$CLIENT-$platform" "$WORK/package/claude" || fail 'All download attempts failed. Rerun this command to reuse verified downloads.'
+    else
+        linspace_asset "$CLIENT-$platform" "$WORK/client.tar.gz" || fail 'All download attempts failed. Rerun this command to reuse verified downloads.'
+        tar -xzf "$WORK/client.tar.gz" -C "$WORK/package"
+    fi
     if [[ $CLIENT == codex ]]; then
         cat > "$WORK/package/LICENSE.Codex" <<'CODEX_LICENSE'
 @@include:vendor/notices/LICENSE.Codex@@
@@ -199,7 +204,7 @@ BWRAP_LICENSE
         executable=bin/codex
         ln -s bin/codex "$WORK/package/codex"
     else
-        executable=package/claude
+        executable=claude
         [[ -f $WORK/package/$executable && ! -L $WORK/package/$executable ]] || fail 'The Claude native executable is missing.'
         chmod 755 "$WORK/package/$executable"
     fi

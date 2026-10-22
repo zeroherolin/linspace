@@ -34,6 +34,14 @@ def values():
             raise ValueError(f'Invalid asset size: {name}')
         if 'raw_sha256' in entry and not re.fullmatch(r'[0-9a-f]{64}', entry['raw_sha256']):
             raise ValueError(f'Invalid decompressed checksum: {name}')
+        if any(key in entry for key in ('raw_size', 'raw_url', 'compression')) and 'raw_sha256' not in entry:
+            raise ValueError(f'Decompressed details need a checksum: {name}')
+        if entry.get('compression', 'gzip') not in ('gzip', 'zstd'):
+            raise ValueError(f'Unsupported compression: {name}')
+        if 'raw_size' in entry and (type(entry['raw_size']) is not int or entry['raw_size'] <= 0):
+            raise ValueError(f'Invalid decompressed size: {name}')
+        if 'raw_url' in entry and 'raw_size' not in entry:
+            raise ValueError(f'An uncompressed source needs its size: {name}')
         if not re.fullmatch(r'[a-z0-9-]+', name):
             raise ValueError('Invalid asset name')
         urls, hashes, sizes = [], [], []
@@ -46,7 +54,8 @@ def values():
         url = https_url(entry.get('url', ''), optional=True)
         if not urls or not re.fullmatch(r'[0-9a-f]{64}', entry['sha256']) or sum(map(int, sizes)) != entry['size']:
             raise ValueError(f'Invalid asset: {name}')
-        assignments = {'ASSET_SHA': entry['sha256'], 'ASSET_SIZE': str(entry['size']), 'ASSET_URL': url, 'ASSET_VERSION': entry['version'], 'ASSET_RAW_SHA': entry.get('raw_sha256',''), 'ASSET_TARGET': entry.get('target','')}
+        assignments = {'ASSET_SHA': entry['sha256'], 'ASSET_SIZE': str(entry['size']), 'ASSET_URL': url, 'ASSET_VERSION': entry['version'], 'ASSET_RAW_SHA': entry.get('raw_sha256',''), 'ASSET_TARGET': entry.get('target',''),
+                       'ASSET_COMPRESSION': entry.get('compression', 'gzip' if 'raw_sha256' in entry else ''), 'ASSET_RAW_SIZE': str(entry.get('raw_size', '')), 'ASSET_RAW_URL': https_url(entry.get('raw_url', ''), optional=True)}
         line = '        ' + name + ') ' + '; '.join(f'{k}={shlex.quote(v)}' for k,v in assignments.items()) + '; '
         line += '; '.join(f'{k}=({" ".join(shlex.quote(v) for v in seq)})' for k,seq in [('ASSET_PART_URLS',urls),('ASSET_PART_SHAS',hashes),('ASSET_PART_SIZES',sizes)]) + ' ;;'
         cases.append(line)

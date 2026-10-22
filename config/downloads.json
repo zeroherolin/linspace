@@ -1,32 +1,32 @@
 {
   "schema": 1,
-  "source_url": "https://gitee.com/zeroherolin/linspace-assets/tree/assets-20260911-3",
+  "source_url": "https://gitee.com/zeroherolin/linspace-assets/tree/assets-20261022-1",
   "assets": {
     "mihomo-amd64-v1": {
-      "version": "1.19.27",
-      "sha256": "b922f6fc90a232b9265db1cc9c5206fee8479dc2047bb037ebf09bc3c9e3b352",
-      "size": 17878236,
-      "raw_sha256": "ab33dead65aaa95bc03b722f155d95f1003ac00517de6726e9b8d56ef9bbec92",
-      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-amd64-v1-v1.19.27.gz",
+      "version": "1.19.33",
+      "sha256": "8ec92e7b2fdc6b853ba00156bab7e4e965c8b0d843b8c4ac8ab98795f02ad524",
+      "size": 22893964,
+      "raw_sha256": "19cbe7ba1523a92ed2d0a30716ea093de57db05b7844db23de2b9c21fd7a1afa",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-v1-v1.19.33.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/mihomo-amd64-v1-b922f6fc90a232b9.part000",
-          "sha256": "b922f6fc90a232b9265db1cc9c5206fee8479dc2047bb037ebf09bc3c9e3b352",
-          "size": 17878236
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/mihomo-amd64-v1-8ec92e7b2fdc6b85.part000",
+          "sha256": "8ec92e7b2fdc6b853ba00156bab7e4e965c8b0d843b8c4ac8ab98795f02ad524",
+          "size": 22893964
         }
       ]
     },
     "mihomo-arm64": {
-      "version": "1.19.27",
-      "sha256": "87db0c6660a9557a901b5750f997967e71d8c0af07ea1d1dd4d04c28da7f7e6f",
-      "size": 16037938,
-      "raw_sha256": "1322d55156f4f1f7dcbdccaa34c7fabf6a4f2831d584454c197d364f7f760d2e",
-      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-arm64-v1.19.27.gz",
+      "version": "1.19.33",
+      "sha256": "ba408b317080ee265c46cb923a50018c1b82cbd708551cdd46a1e3e307396187",
+      "size": 20824326,
+      "raw_sha256": "8c73570d9a5f388bc2f58eee0b347ccfab84fb3cf1a0f8f2cf5eac7005fbcdc0",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-arm64-v1.19.33.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/mihomo-arm64-87db0c6660a9557a.part000",
-          "sha256": "87db0c6660a9557a901b5750f997967e71d8c0af07ea1d1dd4d04c28da7f7e6f",
-          "size": 16037938
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/mihomo-arm64-ba408b317080ee26.part000",
+          "sha256": "ba408b317080ee265c46cb923a50018c1b82cbd708551cdd46a1e3e307396187",
+          "size": 20824326
         }
       ]
     },
@@ -45,218 +45,239 @@
       ]
     },
     "claude-linux-x64": {
-      "version": "2.1.267",
-      "sha256": "010258658ab7a0aa09ea992cb2a314689e25ce42854c57d6993e3136097039d5",
-      "size": 97505280,
-      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.267.tgz",
+      "version": "2.1.308",
+      "sha256": "f8b3641a8d3664420bde0153433e03fd3fad5351a1a12cf6f798ed86c52c9ea9",
+      "size": 103095977,
+      "raw_sha256": "356733f185fa988e6bf3aa9a555269fdd167982a2e2a80d3c8a78037bb92ad58",
+      "raw_size": 292232560,
+      "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-x64/claude",
+      "compression": "zstd",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-x64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/claude-linux-x64-010258658ab7a0aa.part000",
-          "sha256": "648699e4f1c42c9e094766829eb44930e6823f5866c92c5e40190984b4817643",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-x64-f8b3641a8d366442.part000",
+          "sha256": "962d7248fd297b8abe8f30330a896c4340382f41ae8ce1e5725bf8e1f359d6b5",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/claude-linux-x64-010258658ab7a0aa.part001",
-          "sha256": "69a1300b8d9507c0051ddeb41e3a9fdcad88705879204273e392d617c03ded9e",
-          "size": 1505280
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-x64-f8b3641a8d366442.part001",
+          "sha256": "4c2b106e154a80510d8de51f13f332dbabc3834ff26d35bbdd3e2b0cae277cef",
+          "size": 7095977
         }
       ]
     },
     "claude-linux-arm64": {
-      "version": "2.1.267",
-      "sha256": "194504f29938c6c1ddc39bb4f41b142533dc7d5ad747233857bc5c15ced9961c",
-      "size": 97975462,
-      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.267.tgz",
+      "version": "2.1.308",
+      "sha256": "6f872ce2362e3485abbd7dcb921514e3319ebe36c2efabb7193f128ed337d8d4",
+      "size": 102117787,
+      "raw_sha256": "fdd22e6cbb734d580f5664c48df4294eeec850218ff07f186f9af30426396ee1",
+      "raw_size": 292085944,
+      "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-arm64/claude",
+      "compression": "zstd",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-arm64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/claude-linux-arm64-194504f29938c6c1.part000",
-          "sha256": "b9fb680098cf08ac41a64e8f46246ed84017fa853fefc094ada4737120084786",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-arm64-6f872ce2362e3485.part000",
+          "sha256": "590ab51b8c7bb21e0d5b101bed035f8eac88631b03453d4148d86a47b70037e0",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/claude-linux-arm64-194504f29938c6c1.part001",
-          "sha256": "700b096d4a86c3a5e7e7ed1700892e4f786779fd1149295c3f88fb19b6fbe974",
-          "size": 1975462
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-arm64-6f872ce2362e3485.part001",
+          "sha256": "20d5d243230c999aeb9c63268bed1c1131a6d6f769068c4a0b7dda8cc3fa8085",
+          "size": 6117787
         }
       ]
     },
     "codex-linux-x64": {
-      "version": "0.154.0",
-      "sha256": "fc6e3e3b85f2cf7d664520ee5c66a7fe4aa12bae7d46834f47e2f165fd0d6f78",
-      "size": 126585776,
+      "version": "0.163.0",
+      "sha256": "582646c6bf0561eb0de540f7fc85b9121b0091a826bc6e96830b7f1722122182",
+      "size": 159424486,
       "target": "x86_64-unknown-linux-musl",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.154.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/codex-linux-x64-fc6e3e3b85f2cf7d.part000",
-          "sha256": "2af2066ba5af613dab18097c2c26bb47fdfaf0c48f2922011c21497e9f31e23e",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/codex-linux-x64-582646c6bf0561eb.part000",
+          "sha256": "9b40cffe5093b97545938d43ff03a3b32f52606ae7f37dc2e24f2f18e2088d5d",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/codex-linux-x64-fc6e3e3b85f2cf7d.part001",
-          "sha256": "7797ae0d5324004778b5234db9877c9f3da6429e52a86602c7596bc136da27ee",
-          "size": 30585776
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/codex-linux-x64-582646c6bf0561eb.part001",
+          "sha256": "b83ca6b2aa7a895cf515cdead94530982485ee36798c6ebf0f3f66e22c444529",
+          "size": 63424486
         }
       ]
     },
     "codex-linux-arm64": {
-      "version": "0.154.0",
-      "sha256": "97d93e11df72d3c26772db019e6ea8bb72c246500d46b98c760839f3240355e6",
-      "size": 118112884,
+      "version": "0.163.0",
+      "sha256": "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb",
+      "size": 149800043,
       "target": "aarch64-unknown-linux-musl",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.154.0/codex-package-aarch64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-unknown-linux-musl.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/codex-linux-arm64-97d93e11df72d3c2.part000",
-          "sha256": "511002fecea65de8a8e9deef921fbca45106e35dddd3bfe2383a2c411462766b",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/codex-linux-arm64-9d8ecf2d19d3e184.part000",
+          "sha256": "1d882aab0853466d8580ef1cb4719ea3e1fa424cdbb511a8e504f2b48284fd34",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260910-1/codex-linux-arm64-97d93e11df72d3c2.part001",
-          "sha256": "63ea8d22369d70b4168f15b06b371e1015ebd9203e490c64b21a8ae230167463",
-          "size": 22112884
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/codex-linux-arm64-9d8ecf2d19d3e184.part001",
+          "sha256": "705d190d3d697b01b8565ff16ee3b9d581c85e59f7c770c65367c92198357e6f",
+          "size": 53800043
         }
       ]
     },
     "python-linux-x64": {
-      "version": "3.12.14+20260901",
-      "sha256": "72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c",
-      "size": 34143368,
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "version": "3.12.15+20261021",
+      "sha256": "6d7521138fd33afddc1ccd08abb007d9a2829e38117c2576f9efdc0ec73ce772",
+      "size": 34479606,
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.12.15%2B20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/python-linux-x64-72748da13197c1fb.part000",
-          "sha256": "72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c",
-          "size": 34143368
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/python-linux-x64-6d7521138fd33afd.part000",
+          "sha256": "6d7521138fd33afddc1ccd08abb007d9a2829e38117c2576f9efdc0ec73ce772",
+          "size": 34479606
         }
       ]
     },
     "python-linux-arm64": {
-      "version": "3.12.14+20260901",
-      "sha256": "577b4bec0793ad1ff0cbff9adbd0df078eddde38a4c41bf5d83ad381a85ee39d",
-      "size": 29199399,
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "version": "3.12.15+20261021",
+      "sha256": "b4567aa5a11f51b540c4dfd9e082ebf23e554f8ac17b85caa6cea23e83693394",
+      "size": 29198711,
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.12.15%2B20261021-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/python-linux-arm64-577b4bec0793ad1f.part000",
-          "sha256": "577b4bec0793ad1ff0cbff9adbd0df078eddde38a4c41bf5d83ad381a85ee39d",
-          "size": 29199399
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/python-linux-arm64-b4567aa5a11f51b5.part000",
+          "sha256": "b4567aa5a11f51b540c4dfd9e082ebf23e554f8ac17b85caa6cea23e83693394",
+          "size": 29198711
         }
       ]
     },
     "caddy-linux-x64": {
-      "version": "2.11.4",
-      "sha256": "c41708ffb4af9bc6d19f7d22a7a034804352a21ecc62e1d3dfe3d58e30b38a3e",
-      "size": 17265372,
-      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_amd64.deb",
+      "version": "2.11.7",
+      "sha256": "a22b914ffd1958da42bc7ab13b7b62c6100634e0798ab594891d2d61d53ba749",
+      "size": 18142322,
+      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.deb",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/caddy-linux-x64-c41708ffb4af9bc6.part000",
-          "sha256": "c41708ffb4af9bc6d19f7d22a7a034804352a21ecc62e1d3dfe3d58e30b38a3e",
-          "size": 17265372
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/caddy-linux-x64-a22b914ffd1958da.part000",
+          "sha256": "a22b914ffd1958da42bc7ab13b7b62c6100634e0798ab594891d2d61d53ba749",
+          "size": 18142322
         }
       ]
     },
     "caddy-linux-arm64": {
-      "version": "2.11.4",
-      "sha256": "aeab2e38bf77a0162611a1703a5e16c09475b000d41f7edaa9337734d16642fd",
-      "size": 15731662,
-      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_arm64.deb",
+      "version": "2.11.7",
+      "sha256": "ca8ae5a50439642d7672344b4ec64e47cbddf81beb5da302420a78522eb5a47e",
+      "size": 16511820,
+      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_arm64.deb",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20260911-1/caddy-linux-arm64-aeab2e38bf77a016.part000",
-          "sha256": "aeab2e38bf77a0162611a1703a5e16c09475b000d41f7edaa9337734d16642fd",
-          "size": 15731662
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/caddy-linux-arm64-ca8ae5a50439642d.part000",
+          "sha256": "ca8ae5a50439642d7672344b4ec64e47cbddf81beb5da302420a78522eb5a47e",
+          "size": 16511820
         }
       ]
     },
     "claude-darwin-x64": {
-      "version": "2.1.267",
-      "sha256": "b8c7ff502048d190b13576d988e3d6279e9df3d5c471bc533134a4ddbe486980",
-      "size": 91696137,
-      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-x64/-/claude-code-darwin-x64-2.1.267.tgz",
+      "version": "2.1.308",
+      "sha256": "540f89af5ad8e2048390719961739939d59d64a0f3b01af1a158cb1be6f412ae",
+      "size": 98219435,
+      "raw_sha256": "9a0bc140f5fb06e6366624d770371ef290e6731d1e84c4def5daf4df946d1b59",
+      "raw_size": 285902384,
+      "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-x64/claude",
+      "compression": "zstd",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-x64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/claude-darwin-x64-b8c7ff502048d190.part000",
-          "sha256": "b8c7ff502048d190b13576d988e3d6279e9df3d5c471bc533134a4ddbe486980",
-          "size": 91696137
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-x64-540f89af5ad8e204.part000",
+          "sha256": "9bb193381eb55c696263947a4f58628b51a0f5ab0165e04c19fd5ba36d9262a8",
+          "size": 96000000
+        },
+        {
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-x64-540f89af5ad8e204.part001",
+          "sha256": "0ed4697ad09bf544a332c53ff467f9d64886b3f38a4fe999fd75da69cbafa6aa",
+          "size": 2219435
         }
       ]
     },
     "claude-darwin-arm64": {
-      "version": "2.1.267",
-      "sha256": "cae3e0ed28742196b990a6e615977501cabab9cf31e77d8e854ce660c186aaa2",
-      "size": 87740167,
-      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.267.tgz",
+      "version": "2.1.308",
+      "sha256": "e4d214226582e2f52eafa3de4b2f55469677974e49e6e96376aad740c37d2557",
+      "size": 92822156,
+      "raw_sha256": "ca923c86ac84b30574a82331a05b6e066c27477a926ceaffe46a845a33e4dd37",
+      "raw_size": 274675680,
+      "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-arm64/claude",
+      "compression": "zstd",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-arm64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/claude-darwin-arm64-cae3e0ed28742196.part000",
-          "sha256": "cae3e0ed28742196b990a6e615977501cabab9cf31e77d8e854ce660c186aaa2",
-          "size": 87740167
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-arm64-e4d214226582e2f5.part000",
+          "sha256": "e4d214226582e2f52eafa3de4b2f55469677974e49e6e96376aad740c37d2557",
+          "size": 92822156
         }
       ]
     },
     "codex-darwin-x64": {
-      "version": "0.154.0",
-      "sha256": "8052c6accbe0361bfbd424a10aa5f2226636ed8afb6dcbd5e6437993e57b16d8",
-      "size": 121834320,
+      "version": "0.163.0",
+      "sha256": "0c182d6194da7003943678dc87866b54b3dee719edaf8d092f304affbc6b57d1",
+      "size": 144982749,
       "target": "x86_64-apple-darwin",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.154.0/codex-package-x86_64-apple-darwin.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-apple-darwin.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/codex-darwin-x64-8052c6accbe0361b.part000",
-          "sha256": "dbceee0e4b1c7de553b6b4c4309b71149a4476c6be249639d1c8eb7800b8a293",
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/codex-darwin-x64-0c182d6194da7003.part000",
+          "sha256": "bc2bbd2448c367670ec96ba321c51746e9dc56b0ec428ccdd04ef4e161f4bd6e",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/codex-darwin-x64-8052c6accbe0361b.part001",
-          "sha256": "b69af586d4825b415e4e9c10c9710fde5cdd17d88f5e2cf860788d645eb0e782",
-          "size": 25834320
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/codex-darwin-x64-0c182d6194da7003.part001",
+          "sha256": "f7f9688d5c6e04ddee002bec8fef2a53502bbe9800a3da74b57bbc76abc95a63",
+          "size": 48982749
         }
       ]
     },
     "codex-darwin-arm64": {
-      "version": "0.154.0",
-      "sha256": "427ca74c027049e0cd1a330d611e7f8d1fe0f1eb6a6d85ac16f61bcf2cb4a485",
-      "size": 112327068,
+      "version": "0.163.0",
+      "sha256": "b0344fc2e41f15e0071147e5869008047b8ff4bf2c4a8897975d3bae3f103b34",
+      "size": 133412281,
       "target": "aarch64-apple-darwin",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.154.0/codex-package-aarch64-apple-darwin.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-apple-darwin.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/codex-darwin-arm64-427ca74c027049e0.part000",
-          "sha256": "8c8920899fc33f61a87b9c155f2be83b133f0881c991f53de8b99fe53350643c",
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/codex-darwin-arm64-b0344fc2e41f15e0.part000",
+          "sha256": "2cbec74debade3fe9f3be50335a8d4d917805b1cd18b962402086dfa299fb9e0",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/codex-darwin-arm64-427ca74c027049e0.part001",
-          "sha256": "5953522629280755ab098c19f93d73e9d213807bb0648af296d9aea0bd0ffc68",
-          "size": 16327068
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/codex-darwin-arm64-b0344fc2e41f15e0.part001",
+          "sha256": "81c96f596118e821c4195c5984c4098978d3b206c8354caa703bbdfc9be694f4",
+          "size": 37412281
         }
       ]
     },
     "python-darwin-x64": {
-      "version": "3.12.14+20260901",
-      "sha256": "65b195c9cedc1fef6767f044f9822069adbd1bd9204d424ece4628776fdc04bb",
-      "size": 24686153,
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only_stripped.tar.gz",
+      "version": "3.12.15+20261021",
+      "sha256": "f12e0504397683d6be0745ffd4c39ef45a455cec169adf35c628840d06133773",
+      "size": 24740782,
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.12.15%2B20261021-x86_64-apple-darwin-install_only_stripped.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/python-darwin-x64-65b195c9cedc1fef.part000",
-          "sha256": "65b195c9cedc1fef6767f044f9822069adbd1bd9204d424ece4628776fdc04bb",
-          "size": 24686153
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/python-darwin-x64-f12e0504397683d6.part000",
+          "sha256": "f12e0504397683d6be0745ffd4c39ef45a455cec169adf35c628840d06133773",
+          "size": 24740782
         }
       ]
     },
     "python-darwin-arm64": {
-      "version": "3.12.14+20260901",
-      "sha256": "81a359f1cfadd4da11766534c5913791cea55f26e1bb902cacd2a531bb1e4b2b",
-      "size": 24981445,
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "version": "3.12.15+20261021",
+      "sha256": "7b8d00b751db21cea87dc551a8f8165147c5fbc5251d5537d7e5497dde00a219",
+      "size": 25017408,
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.12.15%2B20261021-aarch64-apple-darwin-install_only_stripped.tar.gz",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20260911-1/python-darwin-arm64-81a359f1cfadd4da.part000",
-          "sha256": "81a359f1cfadd4da11766534c5913791cea55f26e1bb902cacd2a531bb1e4b2b",
-          "size": 24981445
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/python-darwin-arm64-7b8d00b751db21ce.part000",
+          "sha256": "7b8d00b751db21cea87dc551a8f8165147c5fbc5251d5537d7e5497dde00a219",
+          "size": 25017408
         }
       ]
     }

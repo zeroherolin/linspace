@@ -60,6 +60,16 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         case=f'codex-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(data)}; ASSET_URL=https://upstream.test/package; ASSET_VERSION=0.154.0; ASSET_PART_SHAS=({hashes}); ASSET_PART_SIZES=({sizes}); ASSET_PART_URLS=(https://fallback.test/part0 https://fallback.test/part1);;'
         return build.render('src/lifecycle/install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'codex','CLIENT_NAME':'Codex','ASSET_CASES':case})
 
+    def claude_script(self,raw_url='https://official.test/claude-raw'):
+        """Claude Code ships one native executable: zstd-compressed, with the uncompressed build beside it."""
+        raw=b'#!/bin/sh\necho "2.1.308 (Claude Code)"\n';(self.root/'claude-raw').write_bytes(raw)
+        packed=subprocess.run(['zstd','-q','-c'],input=raw,capture_output=True,check=True).stdout if shutil.which('zstd') else b'unused'
+        (self.root/'claude-part0').write_bytes(packed);sha=hashlib.sha256(packed).hexdigest()
+        case=(f'claude-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(packed)}; ASSET_URL=https://upstream.test/claude.zst; ASSET_VERSION=2.1.308; '
+              f'ASSET_COMPRESSION=zstd; ASSET_RAW_SHA={hashlib.sha256(raw).hexdigest()}; ASSET_RAW_SIZE={len(raw)}; ASSET_RAW_URL={raw_url}; '
+              f'ASSET_PART_SHAS=({sha}); ASSET_PART_SIZES=({len(packed)}); ASSET_PART_URLS=(https://fallback.test/claude-part0);;')
+        return build.render('src/lifecycle/install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'claude','CLIENT_NAME':'Claude Code','ASSET_CASES':case})
+
     def run_script(self,script=None):
         return subprocess.run(['bash','-s'],input=script or self.script,env=self.env,text=True,capture_output=True,timeout=15,start_new_session=True)
 
@@ -80,6 +90,30 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(self.requests(),[])
         self.assertEqual(list((self.home/'data/linspace/codex').glob('.previous.*')),[])
         self.assertEqual(backups, [])
+
+    @unittest.skipUnless(shutil.which('zstd'),'zstd is not installed')
+    def test_claude_zstd_build_falls_back_to_the_mirror_and_is_checked_unpacked(self):
+        (self.bin/'zstd').symlink_to(shutil.which('zstd'))
+        result=self.run_script(self.claude_script());self.assertEqual(result.returncode,0,result.stderr)
+        launcher=self.home/'.local/bin/claude'
+        self.assertEqual(launcher.resolve().name,'claude');self.assertEqual(launcher.resolve().parent.parent,(self.home/'data/linspace/claude').resolve())
+        self.assertIn('2.1.308',subprocess.check_output([str(launcher),'--version'],text=True))
+        self.assertTrue(any('https://upstream.test/claude.zst' in a for a in self.requests()))
+        self.assertTrue(any('https://fallback.test/claude-part0' in a for a in self.requests()))
+        self.assertFalse(any('https://official.test/claude-raw' in a for a in self.requests()))
+
+    def test_claude_without_zstd_uses_the_uncompressed_official_build(self):
+        result=self.run_script(self.claude_script());self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('zstd is not installed',result.stderr)
+        self.assertIn('2.1.308',subprocess.check_output([str(self.home/'.local/bin/claude'),'--version'],text=True))
+        self.assertTrue(any('https://official.test/claude-raw' in a for a in self.requests()))
+        self.assertFalse(any('fallback.test' in v for a in self.requests() for v in a))
+
+    def test_claude_without_zstd_or_a_good_official_build_names_the_fix(self):
+        result=self.run_script(self.claude_script('https://upstream.test/claude'));self.assertNotEqual(result.returncode,0)
+        self.assertIn('Install zstd',result.stderr)
+        self.assertFalse((self.home/'.local/bin/claude').exists())
+        self.assertFalse((self.home/'data/linspace/claude').exists() and list((self.home/'data/linspace/claude').iterdir()))
 
     def test_path_hint_is_executable_and_profiles_are_untouched(self):
         result=self.run_script();self.assertEqual(result.returncode,0,result.stderr)
