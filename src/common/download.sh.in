@@ -221,7 +221,7 @@ linspace_python_runtime() (
 
 linspace_python() {
     # The oldest Python the scripts are tested with; an older one gets the verified runtime instead.
-    local minimum=${1:-10} platform
+    local minimum=10 platform
     if command -v python3 >/dev/null 2>&1 && python3 -I -c "import sys; assert sys.version_info >= (3,$minimum)" 2>/dev/null; then
         LINSPACE_PYTHON=$(command -v python3)
         return 0
