@@ -121,4 +121,4 @@ Where the server has no Git access, build on another machine and transfer the ar
 cd dist && sha256sum linspace-site.tar.gz > linspace-site.tar.gz.sha256
 ```
 
-On macOS use `shasum -a 256`. The server needs only Python 3.9+ and Bash; extract and follow the [bundle README](site-bundle.md). The [Mihomo bundle](mihomo-bundle.md) serves clients without site access. Test bundles require `--internal-test`.
+On macOS use `shasum -a 256`. The server needs only Python 3.10+ and Bash; extract and follow the [bundle README](site-bundle.md). The [Mihomo bundle](mihomo-bundle.md) serves clients without site access. Test bundles require `--internal-test`.

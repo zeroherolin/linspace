@@ -10,10 +10,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The oldest supported Python on the newest Ubuntu that still has a build of it,
-        # and a current Python on the newest Ubuntu.
+        # The oldest supported Python on a fixed Ubuntu, so a newer ubuntu-latest
+        # without a build of it cannot fail the check; a current Python on the newest.
         include:
-          - python-version: '3.9'
+          - python-version: '3.10'
             os: ubuntu-24.04
           - python-version: '3.12'
             os: ubuntu-latest

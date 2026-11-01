@@ -35,7 +35,7 @@ git clone https://github.com/zeroherolin/linspace.git
 cd linspace
 ```
 
-Python 3.9+ is required; the TOML parser is bundled. No Node.js, Docker or database is needed.
+Python 3.10+ is required; the TOML parser is bundled. No Node.js, Docker or database is needed.
 
 ### 3. Configure
 

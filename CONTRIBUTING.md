@@ -2,13 +2,13 @@
 
 ## Checks
 
-Use Python 3.9+, Bash, curl, OpenSSL and OpenSSH 8.2+. Parsers are bundled in `vendor/`; no pip installation is required.
+Use Python 3.10+, Bash, curl, OpenSSL and OpenSSH 8.2+. Parsers are bundled in `vendor/`; no pip installation is required.
 
 ```sh
 ./linspace check
 ```
 
-Or `make check PYTHON=python3.12` to select an interpreter. The suite checks syntax, Markdown links and anchors, configuration validation, catalog consistency, CLI behavior, reproducible builds, release integrity, the rendered help pages, deployment locking, rollback, Stash and page writes, and client lifecycle behavior. It needs local Unix sockets and loopback HTTPS but no personal configuration or root access. Tests use temporary homes, synthetic keys, an isolated agent and a temporary certificate; they never load real credentials, modify shell profiles or inspect personal clients. CI runs Python 3.9 and 3.12.
+Or `make check PYTHON=python3.12` to select an interpreter. The suite checks syntax, Markdown links and anchors, configuration validation, catalog consistency, CLI behavior, reproducible builds, release integrity, the rendered help pages, deployment locking, rollback, Stash and page writes, and client lifecycle behavior. It needs local Unix sockets and loopback HTTPS but no personal configuration or root access. Tests use temporary homes, synthetic keys, an isolated agent and a temporary certificate; they never load real credentials, modify shell profiles or inspect personal clients. CI runs Python 3.10 on Ubuntu 24.04 and 3.12 on the newest Ubuntu.
 
 Status messages use `STEP`, `OK`, `INFO`, `WARN` and `ERROR` on stderr; colors appear only on interactive terminals and can be disabled with `NO_COLOR=1`. URL lists and PID queries stay on stdout.
 

@@ -26,7 +26,7 @@ class PythonRuntimeTests(unittest.TestCase):
         if previous:
             (runtime/'python/bin').mkdir(parents=True);(runtime/'python/bin/python3').write_text('#!/bin/sh\nexit 1\n');(runtime/'python/bin/python3').chmod(0o755);(runtime/'keep').write_text('old runtime')
         values={'DOMAIN':'runtime.example.test','ASSET_CASES':f'python-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(data)}; ASSET_URL=""; ASSET_PART_SHAS=({sha}); ASSET_PART_SIZES=({len(data)}); ASSET_PART_URLS=(https://fallback.test/python);;'}
-        script='set -euo pipefail\n'+build.render('src/common/ui.sh',values)+build.render('src/common/download.sh.in',values)+ '\nLINSPACE_DOWNLOAD_CACHE='+shlex.quote(str(cache))+'\nlinspace_python_runtime linux-x64 9\n'
+        script='set -euo pipefail\n'+build.render('src/common/ui.sh',values)+build.render('src/common/download.sh.in',values)+ '\nLINSPACE_DOWNLOAD_CACHE='+shlex.quote(str(cache))+'\nlinspace_python_runtime linux-x64 10\n'
         env={**os.environ,'HOME':str(root),'NO_COLOR':'1'}
         for key in ('BASH_ENV','ENV'):env.pop(key,None)
         result=subprocess.run(['bash','-s'],input=script,env=env,text=True,capture_output=True,timeout=15)

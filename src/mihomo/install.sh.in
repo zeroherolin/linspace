@@ -40,7 +40,7 @@ main() (
         command -v "$command" >/dev/null || fail "Missing base-system prerequisite: $command"
     done
 @@include:src/common/download.sh.in@@
-    linspace_python 9 || fail 'Could not prepare Python.'
+    linspace_python || fail 'Could not prepare Python.'
 @@include:src/mihomo/lock.sh@@
     linspace_mihomo_lock || fail 'Another installation or update is running.'
     if ! id mihomo >/dev/null 2>&1; then

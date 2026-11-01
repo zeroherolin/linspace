@@ -73,7 +73,7 @@ main() {
 
     if [[ $url_given == true ]]; then
         LINSPACE_DOWNLOAD_CACHE=${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/linspace
-        linspace_python 9 || fail 'Could not prepare Python to update base_url.'
+        linspace_python || fail 'Could not prepare Python to update base_url.'
         "$LINSPACE_PYTHON" -I - "$config_dir" "$base_url" 3<<< "$token" <<'LINSPACE_CODEX_PROVIDER_PY'
 import atexit, base64, pathlib, sys, tempfile
 _vendor = tempfile.TemporaryDirectory(prefix='linspace-tomli-')

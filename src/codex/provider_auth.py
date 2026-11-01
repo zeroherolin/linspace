@@ -127,8 +127,8 @@ def save_pair(config_dir, url, token):
 
 def provider_auth_main():
     try:
-        if sys.version_info < (3, 9):
-            raise ValueError('Updating base_url requires Python 3.9 or later.')
+        if sys.version_info < (3, 10):
+            raise ValueError('Updating base_url requires Python 3.10 or later.')
         # Keep the token out of Python command arguments and environment variables.
         with os.fdopen(3) as source:
             token = source.read().removesuffix('\n')
