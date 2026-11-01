@@ -21,7 +21,7 @@ import build
 class MacOSInstallerTests(unittest.TestCase):
     def make_package(self, client, version):
         if client == 'claude':
-            # The official native executable; served as is when zstd is unavailable.
+            # The official native executable, as its uncompressed upstream copy serves it.
             data = f'#!/bin/sh\necho "{version} (Claude Code)"\n'.encode()
             return data, hashlib.sha256(data).hexdigest()
         archive = io.BytesIO()
@@ -42,7 +42,7 @@ class MacOSInstallerTests(unittest.TestCase):
         package, digest = self.make_package(client, version)
         with tempfile.TemporaryDirectory(prefix='linspace-macos-install-') as temporary:
             root = Path(temporary); home = root / 'home'; home.mkdir(); tools = root / 'tools'; tools.mkdir()
-            # Only these commands are visible, so the test never finds a real client or zstd.
+            # Only these commands are visible, so the test never finds a real client.
             for name in TOOLS:
                 command = shutil.which(name)
                 if command:
@@ -61,8 +61,8 @@ class MacOSInstallerTests(unittest.TestCase):
             (tools / 'curl').chmod(0o755)
             raw = ''
             if client == 'claude':
-                # No zstd in this PATH: the uncompressed official executable is fetched and checked.
-                raw = f'ASSET_COMPRESSION=zstd; ASSET_RAW_SHA={digest}; ASSET_RAW_SIZE={len(package)}; ASSET_RAW_URL=https://upstream.test/claude; '
+                # The uncompressed official executable is fetched first and checked; the mirror is gzip.
+                raw = f'ASSET_COMPRESSION=gzip; ASSET_RAW_SHA={digest}; ASSET_RAW_SIZE={len(package)}; ASSET_RAW_URL=https://upstream.test/claude; '
                 digest = '0' * 64
             values = {
                 'DOMAIN': 'macos.example.test',

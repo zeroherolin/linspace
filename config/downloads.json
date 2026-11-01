@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source_url": "https://gitee.com/zeroherolin/linspace-assets/tree/assets-20261022-1",
+  "source_url": "https://gitee.com/zeroherolin/linspace-assets/tree/assets-20261101-1",
   "assets": {
     "mihomo-amd64-v1": {
       "version": "1.19.33",
@@ -46,45 +46,45 @@
     },
     "claude-linux-x64": {
       "version": "2.1.308",
-      "sha256": "f8b3641a8d3664420bde0153433e03fd3fad5351a1a12cf6f798ed86c52c9ea9",
-      "size": 103095977,
+      "sha256": "fe93ed370d9c77ae3cc738ea96c14e034fe752f32321f1ae83fdbc937b24f9a1",
+      "size": 129987742,
+      "url": "",
+      "compression": "gzip",
       "raw_sha256": "356733f185fa988e6bf3aa9a555269fdd167982a2e2a80d3c8a78037bb92ad58",
       "raw_size": 292232560,
       "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-x64/claude",
-      "compression": "zstd",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-x64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-x64-f8b3641a8d366442.part000",
-          "sha256": "962d7248fd297b8abe8f30330a896c4340382f41ae8ce1e5725bf8e1f359d6b5",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261101-1/claude-linux-x64-fe93ed370d9c77ae.part000",
+          "sha256": "e12cfd93ec0aa3e8cf795bc8d92b44a7d9060384bbd5e157f338e148b15c1746",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-x64-f8b3641a8d366442.part001",
-          "sha256": "4c2b106e154a80510d8de51f13f332dbabc3834ff26d35bbdd3e2b0cae277cef",
-          "size": 7095977
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261101-1/claude-linux-x64-fe93ed370d9c77ae.part001",
+          "sha256": "b1d7d9d8372a257dba40da2a248e611c3e506e3c68b7d83778fc0bf9f9f013a1",
+          "size": 33987742
         }
       ]
     },
     "claude-linux-arm64": {
       "version": "2.1.308",
-      "sha256": "6f872ce2362e3485abbd7dcb921514e3319ebe36c2efabb7193f128ed337d8d4",
-      "size": 102117787,
+      "sha256": "7925134995aa09aa737500bd91f005d173d822ec7c15bae61c974c834ba6da3f",
+      "size": 129738200,
+      "url": "",
+      "compression": "gzip",
       "raw_sha256": "fdd22e6cbb734d580f5664c48df4294eeec850218ff07f186f9af30426396ee1",
       "raw_size": 292085944,
       "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-arm64/claude",
-      "compression": "zstd",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/linux-arm64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-arm64-6f872ce2362e3485.part000",
-          "sha256": "590ab51b8c7bb21e0d5b101bed035f8eac88631b03453d4148d86a47b70037e0",
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261101-1/claude-linux-arm64-7925134995aa09aa.part000",
+          "sha256": "6d333d4268e65dc0e55e3027fc5dc927f271ec15bd62fcc2929d5fb7f961d894",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261022-1/claude-linux-arm64-6f872ce2362e3485.part001",
-          "sha256": "20d5d243230c999aeb9c63268bed1c1131a6d6f769068c4a0b7dda8cc3fa8085",
-          "size": 6117787
+          "url": "https://gitee.com/zeroherolin/linspace-assets/releases/download/assets-20261101-1/claude-linux-arm64-7925134995aa09aa.part001",
+          "sha256": "ffa1066ea22726665e40c1fb442997e7b6e4716826351c656b7697f5ff603dfd",
+          "size": 33738200
         }
       ]
     },
@@ -180,40 +180,45 @@
     },
     "claude-darwin-x64": {
       "version": "2.1.308",
-      "sha256": "540f89af5ad8e2048390719961739939d59d64a0f3b01af1a158cb1be6f412ae",
-      "size": 98219435,
+      "sha256": "b299c0c3f24438b05efac51497544e3ee27e8bb2018b4194d003ee7731ef1374",
+      "size": 125390568,
+      "url": "",
+      "compression": "gzip",
       "raw_sha256": "9a0bc140f5fb06e6366624d770371ef290e6731d1e84c4def5daf4df946d1b59",
       "raw_size": 285902384,
       "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-x64/claude",
-      "compression": "zstd",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-x64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-x64-540f89af5ad8e204.part000",
-          "sha256": "9bb193381eb55c696263947a4f58628b51a0f5ab0165e04c19fd5ba36d9262a8",
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261101-1/claude-darwin-x64-b299c0c3f24438b0.part000",
+          "sha256": "9243884ce0eca054758f067a126c97cf4fc6edf6134c15881a8dbf591374f3e7",
           "size": 96000000
         },
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-x64-540f89af5ad8e204.part001",
-          "sha256": "0ed4697ad09bf544a332c53ff467f9d64886b3f38a4fe999fd75da69cbafa6aa",
-          "size": 2219435
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261101-1/claude-darwin-x64-b299c0c3f24438b0.part001",
+          "sha256": "0b0826210f0a976030cb368f25cc7afc887bfb467619d28390f633357c9466c4",
+          "size": 29390568
         }
       ]
     },
     "claude-darwin-arm64": {
       "version": "2.1.308",
-      "sha256": "e4d214226582e2f52eafa3de4b2f55469677974e49e6e96376aad740c37d2557",
-      "size": 92822156,
+      "sha256": "0d2bc15e38b817211a796cb43092c41524ab6566e1e361d6cde01d116e2c3426",
+      "size": 119670903,
+      "url": "",
+      "compression": "gzip",
       "raw_sha256": "ca923c86ac84b30574a82331a05b6e066c27477a926ceaffe46a845a33e4dd37",
       "raw_size": 274675680,
       "raw_url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-arm64/claude",
-      "compression": "zstd",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.308/darwin-arm64/claude.zst",
       "parts": [
         {
-          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261022-1/claude-darwin-arm64-e4d214226582e2f5.part000",
-          "sha256": "e4d214226582e2f52eafa3de4b2f55469677974e49e6e96376aad740c37d2557",
-          "size": 92822156
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261101-1/claude-darwin-arm64-0d2bc15e38b81721.part000",
+          "sha256": "02f6b590b8584d21871c9dbd0117bd1e48b1ab9b5693da0a00837f84dd4d6ed4",
+          "size": 96000000
+        },
+        {
+          "url": "https://gitee.com/zeroherolin/linspace-assets-macos/releases/download/assets-20261101-1/claude-darwin-arm64-0d2bc15e38b81721.part001",
+          "sha256": "2b7b139e94bb2aa3e704fa23f537feff1572623997f581c8ee43e92345207b01",
+          "size": 23670903
         }
       ]
     },

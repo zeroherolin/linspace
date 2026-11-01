@@ -9,9 +9,9 @@ Commands for using a linspace site. Replace `your-domain.cn` with the site domai
 | SSH, Stash and page writes | Linux or macOS | OpenSSH 8.2+ |
 | Mihomo | Debian/Ubuntu x86_64/ARM64, root | Bash, curl, tar, gzip, diff, `sha256sum` or `shasum` |
 | tmux | Linux or macOS | apt/dnf/yum/pacman/apk, or Homebrew on macOS |
-| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | same as Mihomo; `zstd` for Claude Code's fallback download |
+| Claude Code, Codex | Linux x86_64/ARM64 (glibc), macOS Intel/Apple Silicon | same as Mihomo |
 
-Download-based installers use official sources first, then verified fallback downloads. Claude Code is Anthropic's official native executable, checked against the checksum in its signed release manifest; it arrives zstd-compressed, and without `zstd` only the uncompressed official download is tried. The tmux installer uses the host package manager. Installers never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
+Download-based installers use official sources first, then verified fallback downloads. Claude Code is Anthropic's official native executable, checked against the checksum in its signed release manifest; the fallback serves it gzip-compressed. The tmux installer uses the host package manager. Installers never edit shell startup files. Missing Python for Codex auth or uninstall is downloaded as a verified runtime.
 
 ## SSH
 

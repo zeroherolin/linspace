@@ -1,4 +1,5 @@
 """Installer failures are simulated in temporary homes, never real user setups."""
+import gzip
 import hashlib
 import io
 import json
@@ -61,12 +62,11 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         return build.render('src/lifecycle/install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'codex','CLIENT_NAME':'Codex','ASSET_CASES':case})
 
     def claude_script(self,raw_url='https://official.test/claude-raw'):
-        """Claude Code ships one native executable: zstd-compressed, with the uncompressed build beside it."""
+        """Claude Code ships one native executable; the mirror keeps it gzip-compressed."""
         raw=b'#!/bin/sh\necho "2.1.308 (Claude Code)"\n';(self.root/'claude-raw').write_bytes(raw)
-        packed=subprocess.run(['zstd','-q','-c'],input=raw,capture_output=True,check=True).stdout if shutil.which('zstd') else b'unused'
-        (self.root/'claude-part0').write_bytes(packed);sha=hashlib.sha256(packed).hexdigest()
-        case=(f'claude-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(packed)}; ASSET_URL=https://upstream.test/claude.zst; ASSET_VERSION=2.1.308; '
-              f'ASSET_COMPRESSION=zstd; ASSET_RAW_SHA={hashlib.sha256(raw).hexdigest()}; ASSET_RAW_SIZE={len(raw)}; ASSET_RAW_URL={raw_url}; '
+        packed=gzip.compress(raw,mtime=0);(self.root/'claude-part0').write_bytes(packed);sha=hashlib.sha256(packed).hexdigest()
+        case=(f"claude-linux-x64) ASSET_SHA={sha}; ASSET_SIZE={len(packed)}; ASSET_URL=''; ASSET_VERSION=2.1.308; "
+              f'ASSET_COMPRESSION=gzip; ASSET_RAW_SHA={hashlib.sha256(raw).hexdigest()}; ASSET_RAW_SIZE={len(raw)}; ASSET_RAW_URL={raw_url}; '
               f'ASSET_PART_SHAS=({sha}); ASSET_PART_SIZES=({len(packed)}); ASSET_PART_URLS=(https://fallback.test/claude-part0);;')
         return build.render('src/lifecycle/install.sh.in',{'DOMAIN':'site.example.test','CLIENT':'claude','CLIENT_NAME':'Claude Code','ASSET_CASES':case})
 
@@ -91,27 +91,26 @@ else:output.write_bytes((root/url.rsplit('/',1)[1]).read_bytes())
         self.assertEqual(list((self.home/'data/linspace/codex').glob('.previous.*')),[])
         self.assertEqual(backups, [])
 
-    @unittest.skipUnless(shutil.which('zstd'),'zstd is not installed')
-    def test_claude_zstd_build_falls_back_to_the_mirror_and_is_checked_unpacked(self):
-        (self.bin/'zstd').symlink_to(shutil.which('zstd'))
+    def test_claude_comes_from_the_official_uncompressed_build(self):
         result=self.run_script(self.claude_script());self.assertEqual(result.returncode,0,result.stderr)
         launcher=self.home/'.local/bin/claude'
         self.assertEqual(launcher.resolve().name,'claude');self.assertEqual(launcher.resolve().parent.parent,(self.home/'data/linspace/claude').resolve())
         self.assertIn('2.1.308',subprocess.check_output([str(launcher),'--version'],text=True))
-        self.assertTrue(any('https://upstream.test/claude.zst' in a for a in self.requests()))
-        self.assertTrue(any('https://fallback.test/claude-part0' in a for a in self.requests()))
-        self.assertFalse(any('https://official.test/claude-raw' in a for a in self.requests()))
-
-    def test_claude_without_zstd_uses_the_uncompressed_official_build(self):
-        result=self.run_script(self.claude_script());self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn('zstd is not installed',result.stderr)
-        self.assertIn('2.1.308',subprocess.check_output([str(self.home/'.local/bin/claude'),'--version'],text=True))
         self.assertTrue(any('https://official.test/claude-raw' in a for a in self.requests()))
         self.assertFalse(any('fallback.test' in v for a in self.requests() for v in a))
 
-    def test_claude_without_zstd_or_a_good_official_build_names_the_fix(self):
+    def test_unreachable_official_build_falls_back_to_the_gzip_mirror_without_zstd(self):
+        self.assertFalse((self.bin/'zstd').exists())
+        result=self.run_script(self.claude_script('https://upstream.test/claude'));self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn('zstd',result.stderr)
+        self.assertIn('2.1.308',subprocess.check_output([str(self.home/'.local/bin/claude'),'--version'],text=True))
+        self.assertTrue(any('https://fallback.test/claude-part0' in a for a in self.requests()))
+        self.assertFalse(list((self.home/'data/linspace/claude').rglob('*.gz')))
+
+    def test_claude_mirror_that_fails_its_checks_changes_nothing(self):
+        (self.root/'corrupt').touch()
         result=self.run_script(self.claude_script('https://upstream.test/claude'));self.assertNotEqual(result.returncode,0)
-        self.assertIn('Install zstd',result.stderr)
+        self.assertIn('All download attempts failed',result.stderr)
         self.assertFalse((self.home/'.local/bin/claude').exists())
         self.assertFalse((self.home/'data/linspace/claude').exists() and list((self.home/'data/linspace/claude').iterdir()))
 

@@ -36,7 +36,8 @@ def values():
             raise ValueError(f'Invalid decompressed checksum: {name}')
         if any(key in entry for key in ('raw_size', 'raw_url', 'compression')) and 'raw_sha256' not in entry:
             raise ValueError(f'Decompressed details need a checksum: {name}')
-        if entry.get('compression', 'gzip') not in ('gzip', 'zstd'):
+        # Installers unpack with gzip, which they already require; nothing else is assumed.
+        if entry.get('compression', 'gzip') != 'gzip':
             raise ValueError(f'Unsupported compression: {name}')
         if 'raw_size' in entry and (type(entry['raw_size']) is not int or entry['raw_size'] <= 0):
             raise ValueError(f'Invalid decompressed size: {name}')

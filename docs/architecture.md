@@ -49,7 +49,7 @@ All routes except published pages are served on the canonical `domain` only. Eve
 | `/stash/page/NAME` | Signed PUT publishes a page and signed DELETE removes it; needs `page_domain` |
 | `/stash/pages` | Signed GET lists pages as `NAME`, size and Unix modification time, tab-separated; signed DELETE removes every page; needs `page_domain` |
 
-Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; Claude Code's comes from Anthropic's signed native-build manifest, as a zstd-compressed executable whose uncompressed checksum is also pinned; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
+Unknown routes return 404. Public text is served with `no-store` and `nosniff`. Download-based installer scripts use official sources first and a pinned, verified download fallback; Claude Code's is the executable listed in Anthropic's signed native-build manifest, downloaded uncompressed from Anthropic or gzip-compressed from the fallback, and checked against that manifest's checksum once unpacked; the tmux installer delegates to the host package manager. The build embeds `config/downloads.json`; download hosting requires no installer-code changes.
 
 ## Pages
 
