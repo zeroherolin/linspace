@@ -1,7 +1,10 @@
 """Restart reselects a working proxy with the same ordered search as import."""
+import hashlib
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -83,6 +86,64 @@ class ReselectTests(unittest.TestCase):
             self.assertEqual(sub.first_available(['first', 'second', 'third'], sock='trial'), 'second')
             self.assertIsNone(sub.first_available(['first', 'third']))
         self.assertEqual(selected, [('second', 'trial')])
+
+
+
+class SiteVersionTests(unittest.TestCase):
+    """A site that offers a newer Mihomo must not break import or restart on an older install."""
+
+    def setUp(self):
+        sub.installed_version.cache_clear()
+        self.addCleanup(sub.installed_version.cache_clear)
+
+    def test_installed_version_comes_from_the_binary(self):
+        output = 'Mihomo Meta v1.19.27 linux amd64 with go1.26.4 Sat Jun  6 07:43:19 UTC 2026\nUse tags: with_gvisor\n'
+        with patch.object(sub.subprocess, 'run', return_value=SimpleNamespace(stdout=output)):
+            self.assertEqual(sub.installed_version(), 'v1.19.27')
+        sub.installed_version.cache_clear()
+        with patch.object(sub.subprocess, 'run', side_effect=OSError), self.assertRaisesRegex(RuntimeError, 'Cannot read the installed'):
+            sub.installed_version()
+
+    def wait(self, running):
+        with patch.object(sub, 'SITE_VERSION', 'v1.19.33'), patch.object(sub, 'installed_version', return_value='v1.19.27'), \
+             patch.object(sub, 'active', return_value=True), patch.object(sub, 'control', return_value=SimpleNamespace(stdout='42\n')), \
+             patch.object(sub, 'owned_ports', return_value=True), patch.object(sub, 'api', return_value={'version': running}), \
+             patch.object(sub.time, 'sleep'):
+            sub.wait_ready()
+
+    def test_the_installed_version_is_ready_while_the_site_offers_a_newer_one(self):
+        self.wait('v1.19.27')
+
+    def test_a_process_older_than_the_installed_binary_is_named(self):
+        with self.assertRaisesRegex(RuntimeError, 'running mihomo is v1.19.26, but v1.19.27 is installed'):
+            self.wait('v1.19.26')
+
+    def test_a_newer_site_version_is_only_pointed_out(self):
+        with patch.object(sub, 'SITE_VERSION', 'v1.19.33'), patch.object(sub, 'installed_version', return_value='v1.19.27'), \
+             patch.object(sub, 'linspace_log') as log:
+            sub.notice_site_version()
+        self.assertEqual([c.args[0] for c in log.call_args_list], ['WARN', 'INFO'])
+        self.assertIn('v1.19.27 is installed; this site provides v1.19.33', log.call_args_list[0].args[1])
+        self.assertIn('/mihomo/install', log.call_args_list[1].args[1])
+        with patch.object(sub, 'SITE_VERSION', 'v1.19.27'), patch.object(sub, 'installed_version', return_value='v1.19.27'), \
+             patch.object(sub, 'linspace_log') as log:
+            sub.notice_site_version()
+        log.assert_not_called()
+
+    def test_geoip_is_checked_against_the_installed_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'GeoIP.dat').write_bytes(b'snapshot')
+            record = root / 'geoip.sha256'
+            record.write_text(hashlib.sha256(b'snapshot').hexdigest() + '  /var/lib/mihomo/GeoIP.dat\n')
+            with patch.object(sub, 'ROOT', root), patch.object(sub, 'GEO_RECORD', record):
+                sub.check_geoip()
+                (root / 'GeoIP.dat').write_bytes(b'other')
+                with self.assertRaisesRegex(RuntimeError, 'snapshot installed with mihomo'):
+                    sub.check_geoip()
+                record.unlink()
+                with self.assertRaisesRegex(RuntimeError, 'snapshot installed with mihomo'):
+                    sub.check_geoip()
 
 
 if __name__ == '__main__':

@@ -42,7 +42,7 @@ curl -fsSL https://your-domain.cn/mihomo/install | bash
 curl -fsSL https://your-domain.cn/mihomo/sub | bash
 ```
 
-Install fetches the pinned Mihomo version, GeoIP and Python when needed; nothing starts until a subscription is imported. The import script asks for the subscription address on the terminal without echoing it, so the address stays out of shell history and the process list; for scripts, pass it as an argument: `bash -s -- 'https://subscription.example/your-path'`. The subscription may also be a local file path. It must be a Clash/Mihomo YAML with a nonempty `proxies` array; provider-only subscriptions and nodes that disable TLS verification are rejected. Import selects the first working node and starts the proxy; a failed import keeps the previous state. Keep subscriptions private.
+Install fetches the pinned Mihomo version, GeoIP and Python when needed; nothing starts until a subscription is imported. The import script asks for the subscription address on the terminal without echoing it, so the address stays out of shell history and the process list; for scripts, pass it as an argument: `bash -s -- 'https://subscription.example/your-path'`. The subscription may also be a local file path: when this machine cannot reach the subscription address and no proxy runs yet, download it on another machine and import the copied file. It must be a Clash/Mihomo YAML with a nonempty `proxies` array; provider-only subscriptions and nodes that disable TLS verification are rejected. Import selects the first working node and starts the proxy; a failed import keeps the previous state. Keep subscriptions private.
 
 Use the proxy in the terminal running your client:
 
@@ -58,7 +58,7 @@ The listener is local. Rules send China IPs directly and other traffic through t
 curl -fsSL https://your-domain.cn/mihomo/restart | bash
 ```
 
-Restart starts the process again and checks the selected node. While that node passes the HTTPS check the selection is kept; otherwise the imported subscription is searched the way import does, in subscription order, and the first node that passes is selected. If no node passes, the process keeps running with its previous selection and the command fails; import a new subscription or retry later. Nothing is downloaded and the subscription files are not changed.
+Import and restart use the Mihomo version installed on the machine; when the site offers a newer one they say so, and rerunning install updates it in place and keeps the subscription. Restart starts the process again and checks the selected node. While that node passes the HTTPS check the selection is kept; otherwise the imported subscription is searched the way import does, in subscription order, and the first node that passes is selected. If no node passes, the process keeps running with its previous selection and the command fails; import a new subscription or retry later. Nothing is downloaded and the subscription files are not changed.
 
 Diagnose with the process status and log:
 

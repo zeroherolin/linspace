@@ -1,6 +1,7 @@
 from linspace_console import linspace_log
 import argparse
 import copy
+import functools
 import re
 import fcntl
 import hashlib
@@ -28,7 +29,11 @@ MARKER = Path('/usr/local/lib/linspace-mihomo/managed')
 # Shared with install, restart and uninstall; the directory is root-owned 0700.
 LOCK = Path('/run/linspace-mihomo/lock')
 TEMPLATE = Path('/usr/local/lib/linspace-mihomo/baseline.yaml')
-GEO_SHA = '@@GEO_SHA@@'
+# The GeoIP snapshot install verified and recorded; mihomo's start script checks the same file.
+GEO_RECORD = Path('/usr/local/lib/linspace-mihomo/geoip.sha256')
+# What this site's install script provides. Import and restart work with whatever install put on
+# this machine and only point out a newer site version, so a site update never breaks them.
+SITE_VERSION = '@@MIHOMO_VERSION@@'
 GROUP = 'PROXY'
 AUTO = 'AUTO'
 CHECK_URL = 'https://www.google.com'
@@ -108,17 +113,51 @@ def owned_ports(pid):
         return False
 
 
+@functools.lru_cache(maxsize=None)
+def installed_version():
+    """The managed binary's version, in the form its API reports (vX.Y.Z)."""
+    try:
+        output = subprocess.run([str(BIN), '-v'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        output = ''
+    match = re.search(r'(?<![\w.])v\d+\.\d+\.\d+(?![\w.])', output)
+    if not match:
+        fail('Cannot read the installed mihomo version. Run install again.')
+    return match[0]
+
+
+def notice_site_version():
+    installed = installed_version()
+    if installed != SITE_VERSION:
+        linspace_log('WARN', f'mihomo {installed} is installed; this site provides {SITE_VERSION}.')
+        linspace_log('INFO', 'Update when convenient: curl -fsSL https://@@DOMAIN@@/mihomo/install | bash')
+
+
+def check_geoip():
+    try:
+        recorded = GEO_RECORD.read_text().split()[0]
+    except (OSError, IndexError):
+        recorded = ''
+    if hashlib.sha256((ROOT / 'GeoIP.dat').read_bytes()).hexdigest() != recorded:
+        fail('GeoIP.dat does not match the snapshot installed with mihomo. Run install again.')
+
+
 def wait_ready():
+    """Wait until the service runs the installed binary and owns its listeners."""
+    expected, running = installed_version(), None
     for _ in range(60):
         if active():
             pid = int(control('pid').stdout.strip() or 0)
             if pid > 0 and owned_ports(pid):
                 try:
-                    if api('/version')['version'] == '@@MIHOMO_VERSION@@':
-                        return
+                    running = api('/version')['version']
                 except Exception:
-                    pass
+                    running = None
+                if running == expected:
+                    return
         time.sleep(.5)
+    if running is not None:
+        fail(f'The running mihomo is {running}, but {expected} is installed. Run the restart script.')
     fail('mihomo is not ready, or the service does not own the expected loopback and Unix listeners.')
 
 
@@ -240,7 +279,7 @@ def download(url, target, via_proxy=False):
         'curl', '-q', '-fsSL', '--globoff', '--proto', '=https', '--proto-redir', '=https',
         '--connect-timeout', '10', '--max-time', '60', '--max-filesize', str(MAX_SIZE),
         '--proxy', proxy, '--noproxy', '' if via_proxy else '*',
-        '--user-agent', 'clash.meta/@@MIHOMO_VERSION@@', '--config', '-', '-o', str(target)],
+        '--user-agent', f'clash.meta/{installed_version()}', '--config', '-', '-o', str(target)],
         input=config, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result.returncode == 0
 
@@ -419,13 +458,13 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             fail('Another mihomo installation or update is running.')
+        notice_site_version()
         if source_value is None:
             reselect()
             return
         if ROOT.is_symlink() or CONFIG.parent.is_symlink() or any(p.is_symlink() for p in list(targets().values()) + [ROOT / 'GeoIP.dat']):
             fail('The data directory and managed files must not be symbolic links.')
-        if hashlib.sha256((ROOT / 'GeoIP.dat').read_bytes()).hexdigest() != GEO_SHA:
-            fail('GeoIP.dat does not match the pinned snapshot. Run install again.')
+        check_geoip()
         template = yaml.safe_load(TEMPLATE.read_text())
         if [g.get('name') for g in template.get('proxy-groups', [])] != [GROUP, AUTO]:
             fail('Run the current install script before using this version of sub.')
@@ -446,7 +485,9 @@ def main(argv=None):
                 url = source_value
                 if not download(url, raw):
                     if not was_active:
-                        fail('Direct download failed and no existing proxy is running. The current configuration was not changed.')
+                        # A first import, or one after uninstall, has no proxy to retry through.
+                        fail('Direct download failed and no proxy is running to retry through. Download the subscription on a machine '
+                             'that can reach it, copy the file here and pass its path instead. The current configuration was not changed.')
                     wait_ready()
                     if not download(url, raw, via_proxy=True):
                         fail('Download through the existing proxy also failed. The current configuration was not changed.')
