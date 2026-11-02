@@ -116,6 +116,28 @@ class ProbeTests(unittest.TestCase):
         self.assertFalse(any(c.startswith('/proxies/') for c in calls))
         self.assertIn('url=https%3A%2F%2Fwww.google.com', calls[0])
 
+    def test_the_managed_group_is_probed_where_it_is_configured(self):
+        # The live check probes PROXY itself; groups are never in the provider.
+        self.assertEqual(sub.outbound_paths(sub.GROUP), ('/proxies/PROXY', '/proxies/PROXY/delay'))
+        self.assertEqual(sub.outbound_paths(sub.AUTO), ('/proxies/AUTO', '/proxies/AUTO/delay'))
+        node = '/providers/proxies/my-sub/Los%20Angeles%2001'
+        self.assertEqual(sub.outbound_paths('Los Angeles 01'), (node, node + '/healthcheck'))
+        calls = []
+
+        def api(path, method='GET', body=None, *, sock=None, timeout=5):
+            calls.append(path)
+            if path.startswith('/providers/'):
+                raise sub.subprocess.CalledProcessError(22, 'curl')
+            if path.startswith('/proxies/PROXY/delay?'):
+                return {'delay': 670}
+            if path == '/proxies/PROXY':
+                return {'extra': {sub.CHECK_URL: {'alive': True, 'history': [{'delay': 670}]}}}
+            self.fail(f'unexpected API call {path}')
+
+        with patch.object(sub, 'api', side_effect=api):
+            self.assertTrue(sub.probe_node(sub.GROUP))
+        self.assertEqual(len(calls), 2)
+
     def test_a_delay_without_a_passing_record_fails(self):
         # Mihomo returns a delay even for an unexpected status; only the URL's record tells.
         result, _ = self.probe(alive=False)

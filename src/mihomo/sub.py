@@ -286,14 +286,24 @@ def download(url, target, via_proxy=False):
     return result.returncode == 0
 
 
-def probe_node(name, sock=None):
-    # Probe the named outbound directly. Routing rules cannot bypass this check. The nodes live
-    # in the managed provider: newer Mihomo releases list only configured proxies and groups
-    # under /proxies, while the provider's routes reach its nodes on every version.
+def outbound_paths(name):
+    """The API paths of a managed group or a subscription node: its record and its HTTPS check.
+    The groups are configured proxies under /proxies; the nodes live in the managed provider,
+    which newer Mihomo releases no longer list under /proxies, while the provider's routes
+    reach them on every version."""
+    if name in (GROUP, AUTO):
+        path = '/proxies/' + urllib.parse.quote(name, safe='')
+        return path, path + '/delay'
     path = f'/providers/proxies/{PROVIDER}/' + urllib.parse.quote(name, safe='')
+    return path, path + '/healthcheck'
+
+
+def probe_node(name, sock=None):
+    # Probe the named outbound directly. Routing rules cannot bypass this check.
+    path, check = outbound_paths(name)
     query = urllib.parse.urlencode({'url': CHECK_URL, 'timeout': CHECK_TIMEOUT_MS, 'expected': CHECK_STATUS})
     try:
-        result = api(path + '/healthcheck?' + query, sock=sock, timeout=CHECK_TIMEOUT_MS / 1000 + 3)
+        result = api(check + '?' + query, sock=sock, timeout=CHECK_TIMEOUT_MS / 1000 + 3)
         if not isinstance(result, dict) or not isinstance(result.get('delay'), (int, float)) or result['delay'] <= 0:
             return False
         # A delay comes back even for an unexpected status; the URL's own record says whether it passed.
