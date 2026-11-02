@@ -5,6 +5,35 @@ import configparser
 import pwd
 import fcntl
 
+UNIT_ROOTS = (Path('/etc/systemd/system'), Path('/usr/lib/systemd/system'), Path('/lib/systemd/system'))
+
+
+def exec_starts(text):
+    """The ExecStart= commands of a unit file, with systemd's backslash line continuations joined."""
+    lines, pending = [], ''
+    for line in text.splitlines():
+        if line.endswith('\\'):
+            pending += line[:-1] + ' '
+            continue
+        lines.append(pending + line)
+        pending = ''
+    if pending:
+        lines.append(pending)
+    return [line.split('=', 1)[1].strip().lstrip('-+@:!') for line in lines if line.startswith('ExecStart=')]
+
+
+def command_words(command):
+    """The arguments of a service command, and whether shell quoting parsed them exactly. Other
+    tools' units may quote in ways shlex rejects; plain words still show whether they run Mihomo."""
+    try:
+        return shlex.split(command), True
+    except ValueError:
+        return command.split(), False
+
+
+def runs_mihomo(args, binaries):
+    return bool(args) and (Path(args[0]) in binaries or Path(args[0]).name == 'mihomo')
+
 
 class Mihomo:
     def __init__(self):
@@ -41,21 +70,20 @@ class Mihomo:
                 if not all(name.split(':')[0] in {'mihomo', 'clash-meta'} for name in owner[1]):
                     raise ValueError('The Mihomo command belongs to an unrelated package.')
                 self.owners[tuple(owner[1])] = owner
-        for root in [Path('/etc/systemd/system'), Path('/usr/lib/systemd/system'), Path('/lib/systemd/system'),
-                     Path.home() / '.config/systemd/user']:
+        user_units = Path.home() / '.config/systemd/user'
+        for root in [*UNIT_ROOTS, user_units]:
             if not root.is_dir():
                 continue
             for path in root.glob('*.service'):
                 if path.is_symlink() or not path.is_file():
                     continue
-                lines = path.read_text(errors='replace').splitlines()
-                commands = [line.split('=', 1)[1].strip().lstrip('-+') for line in lines if line.startswith('ExecStart=')]
+                commands = exec_starts(path.read_text(errors='replace'))
                 for command in commands:
-                    args = shlex.split(command)
-                    if args and (Path(args[0]) in self.binaries or Path(args[0]).name == 'mihomo'):
-                        if len(commands) != 1:
-                            raise ValueError(f'Inspect this multi-command service manually: {path}')
-                        self.units.append((path, root == Path.home() / '.config/systemd/user'))
+                    args, exact = command_words(command)
+                    if runs_mihomo(args, self.binaries):
+                        if len(commands) != 1 or not exact:
+                            raise ValueError(f'Inspect this Mihomo service manually: {path}')
+                        self.units.append((path, root == user_units))
                         self.service_paths(args)
         for pattern in ['/etc/supervisor/conf.d/*.conf', '/etc/supervisord.d/*.ini', '/etc/mihomo/supervisord.conf']:
             for path in Path('/').glob(pattern.lstrip('/')):
@@ -63,8 +91,10 @@ class Mihomo:
                 parser.read(path)
                 matches = []
                 for section in parser.sections():
-                    args = shlex.split(parser.get(section, 'command', fallback=''))
-                    if section.startswith('program:') and args and (Path(args[0]) in self.binaries or Path(args[0]).name == 'mihomo'):
+                    args, exact = command_words(parser.get(section, 'command', fallback=''))
+                    if section.startswith('program:') and runs_mihomo(args, self.binaries):
+                        if not exact:
+                            raise ValueError(f'Inspect this Mihomo supervisor program manually: {path}')
                         matches.append(section.split(':', 1)[1])
                         self.service_paths(args)
                 if matches:

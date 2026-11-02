@@ -253,3 +253,63 @@ class LifecycleTests(unittest.TestCase):
         if not sys.platform.startswith('linux'):
             self.processes.start()
         self.assertEqual(table[123][2], '/Users/test/.local/bin/codex')
+
+
+# Ubuntu cloud images ship this unit; its ExecStart spans lines with backslash continuations.
+CLOUD_INIT_HOTPLUGD = """[Service]
+Type=simple
+ExecStart=/bin/bash -c 'read args <&3; echo "args=$args"; \\
+                        exec /usr/bin/cloud-init devel hotplug-hook $args; \\
+                        exit 0'
+SyslogIdentifier=cloud-init-hotplugd
+"""
+
+
+class MihomoServiceDiscoveryTests(unittest.TestCase):
+    """The uninstaller reads every unit on the host; other tools' quoting must not stop it."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='linspace-units-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.units = self.root / 'system'
+        self.units.mkdir()
+        for target in (patch.object(mihomo, 'UNIT_ROOTS', (self.units,)),
+                       patch.dict(os.environ, {'HOME': str(self.root / 'home'), 'PATH': '/usr/bin:/bin'}, clear=True),
+                       patch.object(mihomo, 'process_table', return_value={}),
+                       patch.object(mihomo.Path, 'glob', self.no_supervisor_files(mihomo.Path.glob))):
+            target.start()
+            self.addCleanup(target.stop)
+
+    @staticmethod
+    def no_supervisor_files(glob):
+        # Only the temporary unit directory is scanned; the host's supervisor files are not.
+        return lambda self, pattern: glob(self, pattern) if str(self) != '/' else iter(())
+
+    def unit(self, name, text):
+        (self.units / name).write_text(text)
+
+    def test_continued_exec_start_is_joined(self):
+        commands = mihomo.exec_starts(CLOUD_INIT_HOTPLUGD)
+        self.assertEqual(len(commands), 1)
+        args, exact = mihomo.command_words(commands[0])
+        self.assertTrue(exact)
+        self.assertEqual(args[:2], ['/bin/bash', '-c'])
+        self.assertIn('exec /usr/bin/cloud-init devel hotplug-hook $args;', args[2])
+
+    def test_other_units_with_any_quoting_are_skipped(self):
+        self.unit('cloud-init-hotplugd.service', CLOUD_INIT_HOTPLUGD)
+        self.unit('odd.service', "[Service]\nExecStart=/bin/sh -c 'never closed\n")
+        found = mihomo.Mihomo().discover()
+        self.assertEqual(found.units, [])
+
+    def test_a_continued_mihomo_unit_is_recognized(self):
+        self.unit('mihomo.service', '[Service]\nExecStart=/opt/mihomo/bin/mihomo \\n    -d /opt/mihomo\n')
+        found = mihomo.Mihomo().discover()
+        self.assertEqual(found.units, [(self.units / 'mihomo.service', False)])
+        self.assertIn(Path('/opt/mihomo'), found.paths)
+
+    def test_a_mihomo_unit_that_cannot_be_parsed_is_left_to_the_operator(self):
+        self.unit('mihomo.service', "[Service]\nExecStart=/opt/mihomo/bin/mihomo -d '/opt/mihomo\n")
+        with self.assertRaisesRegex(ValueError, 'Inspect this Mihomo service manually'):
+            mihomo.Mihomo().discover()
