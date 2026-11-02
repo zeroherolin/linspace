@@ -36,6 +36,8 @@ GEO_RECORD = Path('/usr/local/lib/linspace-mihomo/geoip.sha256')
 SITE_VERSION = '@@MIHOMO_VERSION@@'
 GROUP = 'PROXY'
 AUTO = 'AUTO'
+# The managed provider that holds the subscription's nodes (baseline.yaml).
+PROVIDER = 'my-sub'
 CHECK_URL = 'https://www.google.com'
 CHECK_STATUS = 200
 CHECK_TIMEOUT_MS = 5000
@@ -285,15 +287,17 @@ def download(url, target, via_proxy=False):
 
 
 def probe_node(name, sock=None):
-    # Probe the named outbound directly. Routing rules cannot bypass this check.
+    # Probe the named outbound directly. Routing rules cannot bypass this check. The nodes live
+    # in the managed provider: newer Mihomo releases list only configured proxies and groups
+    # under /proxies, while the provider's routes reach its nodes on every version.
+    path = f'/providers/proxies/{PROVIDER}/' + urllib.parse.quote(name, safe='')
     query = urllib.parse.urlencode({'url': CHECK_URL, 'timeout': CHECK_TIMEOUT_MS, 'expected': CHECK_STATUS})
     try:
-        result = api('/proxies/' + urllib.parse.quote(name, safe='') + '/delay?' + query,
-                     sock=sock, timeout=CHECK_TIMEOUT_MS / 1000 + 3)
+        result = api(path + '/healthcheck?' + query, sock=sock, timeout=CHECK_TIMEOUT_MS / 1000 + 3)
         if not isinstance(result, dict) or not isinstance(result.get('delay'), (int, float)) or result['delay'] <= 0:
             return False
-        # v1.19.27 can return a delay for an unexpected status; consult the URL-specific result too.
-        detail = api('/proxies/' + urllib.parse.quote(name, safe=''), sock=sock)
+        # A delay comes back even for an unexpected status; the URL's own record says whether it passed.
+        detail = api(path, sock=sock)
         state = detail.get('extra', {}).get(CHECK_URL, {})
         history = state.get('history', [])
         return state.get('alive') is True and bool(history) and history[-1].get('delay', 0) > 0
@@ -377,7 +381,7 @@ def verify_runtime(names, selected):
         fail('Runtime proxy group types differ from the managed policy.')
     if groups[GROUP]['all'] != names or groups[AUTO]['all'] != names or groups[GROUP]['now'] != selected:
         fail('Runtime proxy order or selection does not match the expected state.')
-    provider = api('/providers/proxies/my-sub')
+    provider = api(f'/providers/proxies/{PROVIDER}')
     if provider['vehicleType'] != 'File' or provider['testUrl'] != 'http://www.gstatic.com/generate_204' or provider['expectedStatus'] != '*':
         fail('Runtime provider settings differ from the managed policy.')
 

@@ -89,6 +89,39 @@ class ReselectTests(unittest.TestCase):
 
 
 
+class ProbeTests(unittest.TestCase):
+    """Nodes are probed through the provider, which newer Mihomo releases no longer list under /proxies."""
+
+    def probe(self, alive=True):
+        calls = []
+        provider = '/providers/proxies/my-sub/Los%20Angeles%2001'
+
+        def api(path, method='GET', body=None, *, sock=None, timeout=5):
+            calls.append(path)
+            if path.startswith('/proxies/'):  # what v1.19.33 answers for a provider's node
+                raise sub.subprocess.CalledProcessError(22, 'curl')
+            if path.startswith(provider + '/healthcheck?'):
+                return {'delay': 640}
+            if path == provider:
+                return {'extra': {sub.CHECK_URL: {'alive': alive, 'history': [{'delay': 640 if alive else 0}]}}}
+            self.fail(f'unexpected API call {path}')
+
+        with patch.object(sub, 'api', side_effect=api):
+            result = sub.probe_node('Los Angeles 01', sock='trial')
+        return result, calls
+
+    def test_a_working_node_passes_through_the_provider_routes(self):
+        result, calls = self.probe()
+        self.assertTrue(result)
+        self.assertFalse(any(c.startswith('/proxies/') for c in calls))
+        self.assertIn('url=https%3A%2F%2Fwww.google.com', calls[0])
+
+    def test_a_delay_without_a_passing_record_fails(self):
+        # Mihomo returns a delay even for an unexpected status; only the URL's record tells.
+        result, _ = self.probe(alive=False)
+        self.assertFalse(result)
+
+
 class SiteVersionTests(unittest.TestCase):
     """A site that offers a newer Mihomo must not break import or restart on an older install."""
 
