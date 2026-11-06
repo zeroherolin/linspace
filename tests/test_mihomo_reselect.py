@@ -35,6 +35,7 @@ class ReselectTests(unittest.TestCase):
 
         with patch.object(sub, 'CONFIG', Path('/dev/null')), patch.object(sub, 'ROOT', Path('/dev')), \
              patch.object(sub, 'control', side_effect=lambda action, check=True: calls['control'].append(action)), \
+             patch.object(sub, 'active', return_value=True), \
              patch.object(sub, 'wait_ready'), patch.object(sub, 'verify_proxy_request') as live, \
              patch.object(sub, 'api', side_effect=api), patch.object(sub, 'probe_node', side_effect=probe_node), \
              patch.object(sub, 'linspace_log'):
@@ -239,6 +240,27 @@ class ControlTests(unittest.TestCase):
             self.assertEqual(sub.control('is-active', check=False).returncode, 3)
             with self.assertRaisesRegex(RuntimeError, 'Could not stop mihomo: exit 3'):
                 sub.control('stop')
+
+
+class PortTests(unittest.TestCase):
+    """Another program on 127.0.0.1:7890 is named before anything changes."""
+
+    def test_a_listener_on_the_proxy_port_is_named(self):
+        holder = 'clash (pid 4242)'
+        with patch.object(sub, 'port_holder', return_value=holder):
+            with self.assertRaisesRegex(RuntimeError, r'127\.0\.0\.1:7890 is already in use by clash \(pid 4242\)'):
+                sub.ensure_port_free()
+        with patch.object(sub, 'port_holder', return_value=None):
+            sub.ensure_port_free()
+
+    def test_restart_checks_the_port_only_when_nothing_runs(self):
+        with patch.object(sub, 'CONFIG', Path('/dev/null')), patch.object(sub, 'ROOT', Path('/dev')), \
+             patch.object(Path, 'is_file', lambda self: str(self) in ('/dev/null', '/dev/proxies.yaml')), \
+             patch.object(sub, 'active', return_value=False), patch.object(sub, 'linspace_log'), \
+             patch.object(sub, 'port_holder', return_value='other (pid 7)'), patch.object(sub, 'control') as control:
+            with self.assertRaisesRegex(RuntimeError, 'already in use by other'):
+                sub.reselect()
+        control.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

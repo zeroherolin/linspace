@@ -120,6 +120,40 @@ def owned_ports(pid):
         return False
 
 
+def port_holder():
+    """Who listens on 127.0.0.1:PROXY_PORT when the managed process does not: 'name (pid N)',
+    'another process' when /proc does not say, or None when the port is free."""
+    listening = set()
+    for protocol in ('tcp', 'tcp6'):
+        try:
+            rows = Path(f'/proc/net/{protocol}').read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            fields = row.split()
+            address, port = fields[1].rsplit(':', 1)
+            if int(port, 16) == PROXY_PORT and fields[3] == '0A' and address.upper() in ('0100007F', '00000000', '0' * 32):
+                listening.add(f'socket:[{fields[9]}]')
+    if not listening:
+        return None
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            if any(os.readlink(fd) in listening for fd in (proc / 'fd').iterdir()):
+                return f"{(proc / 'comm').read_text().strip()} (pid {proc.name})"
+        except OSError:
+            continue
+    return 'another process'
+
+
+def ensure_port_free():
+    holder = port_holder()
+    if holder:
+        fail(f'127.0.0.1:{PROXY_PORT} is already in use by {holder}. Stop that program, or move it to another port, '
+             'then import again. The current configuration was not changed.')
+
+
 @functools.lru_cache(maxsize=None)
 def installed_version():
     """The managed binary's version, in the form its API reports (vX.Y.Z)."""
@@ -432,6 +466,8 @@ def reselect():
     HTTPS check becomes the selection."""
     if not CONFIG.is_file() or not (ROOT / 'proxies.yaml').is_file():
         fail('No subscription is imported yet. Import one with the sub script first.')
+    if not active():
+        ensure_port_free()
     linspace_log('STEP', 'Restart mihomo')
     control('restart')
     wait_ready()
@@ -488,6 +524,9 @@ def main(argv=None):
         if [g.get('name') for g in template.get('proxy-groups', [])] != [GROUP, AUTO]:
             fail('Run the current install script before using this version of sub.')
         was_active = active()
+        if not was_active:
+            # The managed process takes this port once the subscription is in place; check first.
+            ensure_port_free()
         work = Path(tempfile.mkdtemp(prefix='.sub-', dir=ROOT))
         changed = False
         keep_work = False
