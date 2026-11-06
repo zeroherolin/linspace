@@ -201,5 +201,44 @@ class SiteVersionTests(unittest.TestCase):
                     sub.check_geoip()
 
 
+
+process_spec = importlib.util.spec_from_file_location('mihomo_process', ROOT / 'src/mihomo/process.py')
+process = importlib.util.module_from_spec(process_spec)
+process_spec.loader.exec_module(process)
+
+
+class ProcessHelperTests(unittest.TestCase):
+    """The installed helper waits for the binary installed beside it, whatever the site offers."""
+
+    def test_ready_compares_with_the_installed_binary(self):
+        output = 'Mihomo Meta v1.19.27 linux amd64 with go1.26.4\n'
+        with patch.object(process, 'SITE_VERSION', 'v1.19.33'), \
+             patch.object(process.subprocess, 'run', return_value=SimpleNamespace(stdout=output)):
+            self.assertEqual(process.installed_version(), 'v1.19.27')
+        with patch.object(process.subprocess, 'run', side_effect=OSError), patch.object(process, 'SITE_VERSION', 'v1.19.33'):
+            self.assertEqual(process.installed_version(), 'v1.19.33')
+
+    def test_wait_ready_accepts_a_process_running_the_installed_version(self):
+        seen = []
+        with patch.object(process, 'installed_version', return_value='v1.19.27'), \
+             patch.object(process, 'running_pid', return_value=42), \
+             patch.object(process, 'ready', side_effect=lambda pid, version=None: seen.append(version) or True):
+            self.assertEqual(process.wait_ready(), 42)
+        self.assertEqual(seen, ['v1.19.27'])
+
+
+class ControlTests(unittest.TestCase):
+    """A failed helper call is reported with its reason, never as a bare exception name."""
+
+    def test_the_helper_reason_is_reported(self):
+        stderr = '[linspace] ERROR mihomo is not ready. Check the log and port conflicts.\n'
+        with patch.object(sub.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='', stderr=stderr)):
+            with self.assertRaisesRegex(RuntimeError, 'Could not start mihomo: mihomo is not ready. Check the log'):
+                sub.control('start')
+        with patch.object(sub.subprocess, 'run', return_value=SimpleNamespace(returncode=3, stdout='', stderr='')):
+            self.assertEqual(sub.control('is-active', check=False).returncode, 3)
+            with self.assertRaisesRegex(RuntimeError, 'Could not stop mihomo: exit 3'):
+                sub.control('stop')
+
 if __name__ == '__main__':
     unittest.main()

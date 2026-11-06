@@ -52,8 +52,13 @@ def fail(message):
 
 
 def control(action, check=True):
-    return subprocess.run([sys.executable, '-I', str(PROCESS), action], check=check,
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run([sys.executable, '-I', str(PROCESS), action],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if check and result.returncode:
+        # The helper's own message, without the [linspace] prefix it adds; it never prints secrets.
+        reason = next((line.split('ERROR', 1)[1].strip() for line in reversed(result.stderr.splitlines()) if 'ERROR' in line), '')
+        fail(f'Could not {action} mihomo: {reason or "exit " + str(result.returncode)}. If this machine has an older install, run the install script again.')
+    return result
 
 
 def active():

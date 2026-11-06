@@ -7,6 +7,7 @@ import http.client
 import os
 from pathlib import Path
 import pwd
+import re
 import signal
 import subprocess
 import sys
@@ -19,6 +20,19 @@ API_RUN = Path('/run/mihomo')
 LOG_DIR = Path('/var/log/mihomo')
 BIN = Path('/usr/local/bin/mihomo')
 RUNNER = LIB / 'run-mihomo.sh'
+# What this site's install script provides. A helper left by an earlier install keeps its own
+# value, so the running process is compared with the binary installed beside it instead.
+SITE_VERSION = '@@MIHOMO_VERSION@@'
+
+
+def installed_version():
+    """The installed binary's version, in the form the API reports (vX.Y.Z); the pinned one if unreadable."""
+    try:
+        output = subprocess.run([str(BIN), '-v'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return SITE_VERSION
+    match = re.search(r'(?<![\w.])v\d+\.\d+\.\d+(?![\w.])', output)
+    return match[0] if match else SITE_VERSION
 
 
 def process_sockets(pid):
@@ -142,7 +156,7 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock.connect(str(API_RUN / 'control.sock'))
 
 
-def ready(pid):
+def ready(pid, version=None):
     try:
         descriptors = process_sockets(pid)
         found = set()
@@ -163,7 +177,7 @@ def ready(pid):
         try:
             connection.request('GET', '/version')
             response = connection.getresponse()
-            return response.status == 200 and json.loads(response.read())['version'] == '@@MIHOMO_VERSION@@'
+            return response.status == 200 and json.loads(response.read())['version'] == (version or installed_version())
         finally:
             connection.close()
     except (OSError, ValueError, KeyError, http.client.HTTPException):
@@ -171,11 +185,12 @@ def ready(pid):
 
 
 def wait_ready():
+    version = installed_version()
     for _ in range(60):
         pid = running_pid()
         if not pid:
             break
-        if ready(pid):
+        if ready(pid, version):
             return pid
         time.sleep(.5)
     raise RuntimeError('mihomo is not ready. Check the log and port conflicts.')
