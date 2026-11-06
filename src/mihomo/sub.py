@@ -157,7 +157,7 @@ def ensure_port_free():
     if holder == '':
         fail(f'127.0.0.1:{PROXY_PORT} is already in use by a program outside this container or namespace: this network '
              'is shared with the host or another container, so the program cannot be seen from here. Stop it where it '
-             f'runs (on the host: ss -ltnp "sport = :{PROXY_PORT}"), or give this container its own network, then import '
+             f'runs (on the host, as root: sudo ss -ltnp "sport = :{PROXY_PORT}"), or give this container its own network, then import '
              'again. The current configuration was not changed.')
 
 
