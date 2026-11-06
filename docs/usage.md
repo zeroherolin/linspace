@@ -44,7 +44,7 @@ curl -fsSL https://your-domain.cn/mihomo/sub | bash
 
 Install fetches the pinned Mihomo version, GeoIP and Python when needed; nothing starts until a subscription is imported. The import script asks for the subscription address on the terminal without echoing it, so the address stays out of shell history and the process list; for scripts, pass it as an argument: `bash -s -- 'https://subscription.example/your-path'`. The subscription may also be a local file path: when this machine cannot reach the subscription address and no proxy runs yet, download it on another machine and import the copied file. It must be a Clash/Mihomo YAML with a nonempty `proxies` array; provider-only subscriptions and nodes that disable TLS verification are rejected. Import selects the first working node and starts the proxy; a failed import keeps the previous state. Keep subscriptions private.
 
-Use the proxy in the terminal running your client:
+The proxy listens on `127.0.0.1:7890`. If another program already uses 7890, the first free port above it is used instead and kept for later imports; import and restart print the port and the matching `export` commands. Use it in the terminal running your client:
 
 ```sh
 export http_proxy=http://127.0.0.1:7890

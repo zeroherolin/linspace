@@ -23,6 +23,22 @@ RUNNER = LIB / 'run-mihomo.sh'
 # What this site's install script provides. A helper left by an earlier install keeps its own
 # value, so the running process is compared with the binary installed beside it instead.
 SITE_VERSION = '@@MIHOMO_VERSION@@'
+CONFIG = Path('/etc/mihomo/config.yaml')
+DEFAULT_PORT = 7890
+
+
+def configured_port():
+    """The proxy port in config.yaml; sub picks it when the default is taken. Read without a YAML
+    parser: the managed configuration keeps it as one top-level 'mixed-port: N' line."""
+    try:
+        for line in CONFIG.read_text().splitlines():
+            if line.startswith('mixed-port:'):
+                port = int(line.split(':', 1)[1].strip().strip('\'"'))
+                if 1024 <= port <= 65535:
+                    return port
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_PORT
 
 
 def installed_version():
@@ -167,7 +183,8 @@ def ready(pid, version=None):
                 if f'socket:[{fields[9]}]' in descriptors and address == '0100007F':
                     if not protocol.startswith('tcp') or fields[3] == '0A':
                         found.add((protocol[:3], int(port, 16)))
-        if not {('tcp', 7890), ('udp', 7890)} <= found:
+        port = configured_port()
+        if not {('tcp', port), ('udp', port)} <= found:
             return False
         own_socket = any(len(f) > 7 and f[7] == str(API_RUN / 'control.sock') and f'socket:[{f[6]}]' in descriptors
                          for f in (line.split() for line in Path(f'/proc/{pid}/net/unix').read_text().splitlines()[1:]))
@@ -214,7 +231,7 @@ def main():
             print(pid)
             return 0
         if action == 'status':
-            linspace_log('OK' if pid else 'INFO', f'mihomo RUNNING (pid {pid})' if pid else 'mihomo STOPPED')
+            linspace_log('OK' if pid else 'INFO', f'mihomo RUNNING (pid {pid}) on 127.0.0.1:{configured_port()}' if pid else 'mihomo STOPPED')
         return 0 if pid else 3
     prepare_runtime()
     with (CONTROL / 'control.lock').open('w') as lock:
@@ -231,7 +248,7 @@ def main():
                 stop_background()
                 raise
             linspace_log('OK', f'mihomo started in background (pid {pid}).')
-            linspace_log('INFO', 'Proxy: 127.0.0.1:7890; log: /var/log/mihomo/mihomo.log')
+            linspace_log('INFO', f'Proxy: 127.0.0.1:{configured_port()}; log: /var/log/mihomo/mihomo.log')
     return 0
 
 

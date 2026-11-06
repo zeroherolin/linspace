@@ -41,8 +41,24 @@ PROVIDER = 'my-sub'
 CHECK_URL = 'https://www.google.com'
 CHECK_STATUS = 200
 CHECK_TIMEOUT_MS = 5000
-PROXY_PORT = 7890
+# The proxy listens on 127.0.0.1. 7890 is the default; when another program holds it, the first
+# free port above it is used and kept in config.yaml, so it does not change on later imports.
+DEFAULT_PORT = 7890
+PORT_RANGE = range(DEFAULT_PORT, 8000)
 MAX_SIZE = 20 * 1024 * 1024
+def configured_port(config=None):
+    """The port in the managed configuration, or the default before the first import."""
+    try:
+        port = yaml.safe_load((config or CONFIG).read_text()).get('mixed-port')
+    except (OSError, AttributeError, yaml.YAMLError):
+        return DEFAULT_PORT
+    return port if type(port) is int and port in PORT_RANGE else DEFAULT_PORT
+
+
+def proxy_url(port=None):
+    return f'http://127.0.0.1:{port or configured_port()}'
+
+
 def targets():
     return {'config.yaml': CONFIG, 'proxies.yaml': ROOT / 'proxies.yaml', 'cache.db': ROOT / 'cache.db'}
 
@@ -115,16 +131,16 @@ def owned_ports(pid):
                 if protocol.startswith('tcp') and fields[3] != '0A':
                     continue
                 found.add((protocol[:3], int(port, 16)))
-        return {('tcp', PROXY_PORT), ('udp', PROXY_PORT)} <= found and owns_socket(pid, SOCKET)
+        port = configured_port()
+        return {('tcp', port), ('udp', port)} <= found and owns_socket(pid, SOCKET)
     except (OSError, ValueError):
         return False
 
 
-def port_holder():
-    """Who listens on 127.0.0.1:PROXY_PORT when the managed process does not: 'name (pid N)',
-    None when the port is free, or '' when no process visible here holds it. That happens in a
-    container sharing its network with the host or another container, and to root without
-    CAP_SYS_PTRACE; the program is then outside what this machine can inspect."""
+def port_holder(port):
+    """Who listens on 127.0.0.1:port: 'name (pid N)', None when the port is free, or '' when no
+    process visible here holds it. That happens in a container sharing its network with the host
+    or another container, and to root without CAP_SYS_PTRACE."""
     listening = set()
     for protocol in ('tcp', 'tcp6'):
         try:
@@ -133,8 +149,8 @@ def port_holder():
             continue
         for row in rows:
             fields = row.split()
-            address, port = fields[1].rsplit(':', 1)
-            if int(port, 16) == PROXY_PORT and fields[3] == '0A' and address.upper() in ('0100007F', '00000000', '0' * 32):
+            address, local = fields[1].rsplit(':', 1)
+            if int(local, 16) == port and fields[3] == '0A' and address.upper() in ('0100007F', '00000000', '0' * 32):
                 listening.add(f'socket:[{fields[9]}]')
     if not listening:
         return None
@@ -149,16 +165,25 @@ def port_holder():
     return ''
 
 
-def ensure_port_free():
-    holder = port_holder()
-    if holder:
-        fail(f'127.0.0.1:{PROXY_PORT} is already in use by {holder}. Stop that program, or move it to another port, '
-             'then import again. The current configuration was not changed.')
-    if holder == '':
-        fail(f'127.0.0.1:{PROXY_PORT} is already in use by a program outside this container or namespace: this network '
-             'is shared with the host or another container, so the program cannot be seen from here. Stop it where it '
-             f'runs (on the host, as root: sudo ss -ltnp "sport = :{PROXY_PORT}"), or give this container its own network, then import '
-             'again. The current configuration was not changed.')
+def describe(holder):
+    return holder or 'a program outside this container'
+
+
+def free_port(preferred):
+    """The preferred port when it is free, otherwise the first free port in PORT_RANGE."""
+    holder = port_holder(preferred)
+    if holder is None:
+        return preferred
+    for port in PORT_RANGE:
+        if port != preferred and port_holder(port) is None:
+            linspace_log('WARN', f'127.0.0.1:{preferred} is in use by {describe(holder)}; using 127.0.0.1:{port} instead.')
+            return port
+    fail(f'Ports {PORT_RANGE.start}-{PORT_RANGE.stop - 1} on 127.0.0.1 are all in use. Stop a program using one of them, '
+         'then import again. The current configuration was not changed.')
+
+
+def proxy_hint(port):
+    linspace_log('INFO', f'Proxy: 127.0.0.1:{port}. In your terminal: export http_proxy={proxy_url(port)} https_proxy={proxy_url(port)}')
 
 
 @functools.lru_cache(maxsize=None)
@@ -322,7 +347,7 @@ def download(url, target, via_proxy=False):
         fail('The subscription address must not contain control characters.')
     # Feed URL through stdin so curl argv/logs do not contain the subscription token.
     config = 'url = ' + json.dumps(url, ensure_ascii=False) + '\n'
-    proxy = f'http://127.0.0.1:{PROXY_PORT}' if via_proxy else ''
+    proxy = proxy_url() if via_proxy else ''
     result = subprocess.run([
         'curl', '-q', '-fsSL', '--globoff', '--proto', '=https', '--proto-redir', '=https',
         '--connect-timeout', '10', '--max-time', '60', '--max-filesize', str(MAX_SIZE),
@@ -415,7 +440,7 @@ def verify_proxy_request():
     result = subprocess.run([
         'curl', '-q', '-fsS', '--globoff', '--proto', '=https',
         '--connect-timeout', '5', '--max-time', '10', '--noproxy', '',
-        '--proxy', f'http://127.0.0.1:{PROXY_PORT}',
+        '--proxy', proxy_url(),
         '--url', CHECK_URL, '-o', os.devnull, '-w', '%{http_code}'],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     if result.returncode != 0 or result.stdout != str(CHECK_STATUS):
@@ -424,7 +449,7 @@ def verify_proxy_request():
 
 def verify_runtime(names, selected):
     cfg = api('/configs')
-    expected = {'mixed-port': PROXY_PORT, 'allow-lan': False, 'bind-address': '127.0.0.1',
+    expected = {'mixed-port': configured_port(), 'allow-lan': False, 'bind-address': '127.0.0.1',
                 'mode': 'rule', 'log-level': 'info', 'ipv6': True, 'geodata-mode': True,
                 'geo-auto-update': False, 'port': 0, 'socks-port': 0, 'redir-port': 0, 'tproxy-port': 0}
     if any(cfg.get(k) != v for k, v in expected.items()) or cfg.get('authentication') or cfg['tun']['enable']:
@@ -474,7 +499,15 @@ def reselect():
     if not CONFIG.is_file() or not (ROOT / 'proxies.yaml').is_file():
         fail('No subscription is imported yet. Import one with the sub script first.')
     if not active():
-        ensure_port_free()
+        port = configured_port()
+        chosen = free_port(port)
+        if chosen != port:
+            config = yaml.safe_load(CONFIG.read_text())
+            config['mixed-port'] = chosen
+            staged = CONFIG.with_name('.config.yaml.port')
+            staged.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False))
+            atomic_copy(staged, CONFIG)
+            staged.unlink(missing_ok=True)
     linspace_log('STEP', 'Restart mihomo')
     control('restart')
     wait_ready()
@@ -497,7 +530,8 @@ def reselect():
     verify_proxy_request()
     change = '' if selected == previous else f' (switched from {previous})'
     linspace_log('OK', f'mihomo restarted; {GROUP} -> {selected}{change}')
-    linspace_log('INFO', 'Proxy: 127.0.0.1:7890; log: /var/log/mihomo/mihomo.log')
+    proxy_hint(configured_port())
+    linspace_log('INFO', 'Log: /var/log/mihomo/mihomo.log')
 
 
 def main(argv=None):
@@ -531,9 +565,8 @@ def main(argv=None):
         if [g.get('name') for g in template.get('proxy-groups', [])] != [GROUP, AUTO]:
             fail('Run the current install script before using this version of sub.')
         was_active = active()
-        if not was_active:
-            # The managed process takes this port once the subscription is in place; check first.
-            ensure_port_free()
+        # A running proxy keeps its port; otherwise the configured or default port, or the first free one.
+        port = configured_port() if was_active else free_port(configured_port())
         work = Path(tempfile.mkdtemp(prefix='.sub-', dir=ROOT))
         changed = False
         keep_work = False
@@ -558,7 +591,9 @@ def main(argv=None):
                         fail('Download through the existing proxy also failed. The current configuration was not changed.')
                     linspace_log('INFO', 'Downloaded through the existing proxy.')
             names = normalize(raw, work / 'proxies.yaml')
-            shutil.copyfile(TEMPLATE, work / 'config.yaml')
+            config = yaml.safe_load(TEMPLATE.read_text())
+            config['mixed-port'] = port
+            (work / 'config.yaml').write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False))
             stage = work / 'data'
             stage.mkdir()
             for name in ('config.yaml', 'proxies.yaml'):
@@ -599,7 +634,7 @@ def main(argv=None):
             verify_proxy_request()
             changed = False
             linspace_log('OK', f'Updated {len(names)} proxies; {GROUP} -> {selected}')
-            linspace_log('INFO', 'Proxy: 127.0.0.1:7890; no backup retained.')
+            proxy_hint(port)
         except BaseException:
             if changed:
                 try:

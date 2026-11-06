@@ -29,7 +29,7 @@ curl -fsSL https://your-domain.cn/mihomo/install | bash
 curl -fsSL https://your-domain.cn/mihomo/sub | bash
 ```
 
-The import command asks for the subscription address without echo, accepts a URL or a local file, selects a working node and starts the proxy on `127.0.0.1:7890`. Use it from the terminal running your client:
+The import command asks for the subscription address without echo, accepts a URL or a local file, selects a working node and starts the proxy on `127.0.0.1:7890`. If another program already uses 7890, the first free port above it is used instead and kept for later imports; import and restart print the port and the matching `export` commands. Use it from the terminal running your client:
 
 ```sh
 export http_proxy=http://127.0.0.1:7890

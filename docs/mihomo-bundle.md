@@ -12,7 +12,7 @@ bash mihomo/install
 bash mihomo/sub "$HOME/private-proxies.yaml"
 ```
 
-Engine and GeoIP downloads use verified sources with automatic fallback; an existing trusted GeoIP file can be supplied with `--geoip-file /path/to/GeoIP.dat`. A successful import starts the proxy on `127.0.0.1:7890`:
+Engine and GeoIP downloads use verified sources with automatic fallback; an existing trusted GeoIP file can be supplied with `--geoip-file /path/to/GeoIP.dat`. A successful import starts the proxy on `127.0.0.1:7890`. If another program already uses 7890, the first free port above it is used instead and kept for later imports; import and restart print the port and the matching `export` commands.
 
 ```sh
 export http_proxy=http://127.0.0.1:7890

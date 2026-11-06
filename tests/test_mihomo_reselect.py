@@ -243,20 +243,49 @@ class ControlTests(unittest.TestCase):
 
 
 class PortTests(unittest.TestCase):
-    """Another program on 127.0.0.1:7890 is named before anything changes."""
+    """A port another program holds is skipped for the first free one, which then stays."""
 
-    def test_a_listener_on_the_proxy_port_is_named(self):
-        holder = 'clash (pid 4242)'
-        with patch.object(sub, 'port_holder', return_value=holder):
-            with self.assertRaisesRegex(RuntimeError, r'127\.0\.0\.1:7890 is already in use by clash \(pid 4242\)'):
-                sub.ensure_port_free()
-        with patch.object(sub, 'port_holder', return_value=None):
-            sub.ensure_port_free()
+    def holders(self, taken):
+        return lambda port: taken.get(port)
 
-    def test_a_holder_outside_this_namespace_is_explained(self):
-        # Root without CAP_SYS_PTRACE reads /proc/net but not other users' descriptors.
+    def test_the_preferred_port_is_kept_while_it_is_free(self):
+        with patch.object(sub, 'port_holder', self.holders({})), patch.object(sub, 'linspace_log') as log:
+            self.assertEqual(sub.free_port(7890), 7890)
+            self.assertEqual(sub.free_port(7893), 7893)
+        log.assert_not_called()
+
+    def test_a_taken_port_moves_to_the_first_free_one_and_says_who_holds_it(self):
+        taken = {7890: 'clash-linux-amd (pid 1772055)', 7891: ''}
+        with patch.object(sub, 'port_holder', self.holders(taken)), patch.object(sub, 'linspace_log') as log:
+            self.assertEqual(sub.free_port(7890), 7892)
+        message = log.call_args.args[1]
+        self.assertIn('127.0.0.1:7890 is in use by clash-linux-amd (pid 1772055)', message)
+        self.assertIn('using 127.0.0.1:7892', message)
+        with patch.object(sub, 'port_holder', self.holders({7890: ''})), patch.object(sub, 'linspace_log') as log:
+            self.assertEqual(sub.free_port(7890), 7891)
+        self.assertIn('a program outside this container', log.call_args.args[1])
+
+    def test_a_full_range_fails_without_changes(self):
+        with patch.object(sub, 'port_holder', lambda port: 'busy (pid 1)'), patch.object(sub, 'linspace_log'):
+            with self.assertRaisesRegex(RuntimeError, 'Ports 7890-7999 on 127.0.0.1 are all in use'):
+                sub.free_port(7890)
+
+    def test_the_configured_port_is_read_from_config_yaml(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / 'config.yaml'
+            self.assertEqual(sub.configured_port(config), 7890)
+            config.write_text('mixed-port: 7893\nallow-lan: false\n')
+            self.assertEqual(sub.configured_port(config), 7893)
+            with patch.object(process, 'CONFIG', config):
+                self.assertEqual(process.configured_port(), 7893)
+            config.write_text('mixed-port: 22\n')
+            self.assertEqual(sub.configured_port(config), 7890)
+            self.assertEqual(sub.proxy_url(7893), 'http://127.0.0.1:7893')
+
+    def test_a_holder_outside_this_namespace_is_reported_as_unseen(self):
+        # In a container sharing the host's network, /proc/net lists the socket but no process here holds it.
         tcp = ('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n'
-               '   0: 0100007F:1ED2 00000000:0000 0A 00000000:00000000 00:00000000 00000000 65534        0 1005767 1\n')
+               '   0: 0100007F:1ED2 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1005767 1\n')
         real_read = Path.read_text
 
         def read_text(self, *args, **kwargs):
@@ -266,21 +295,24 @@ class PortTests(unittest.TestCase):
                 raise OSError('no IPv6')
             return real_read(self, *args, **kwargs)
 
-        with patch.object(Path, 'read_text', read_text), patch.object(Path, 'iterdir', lambda self: iter(())), \
-             patch.object(sub, 'linspace_log'):
-            self.assertEqual(sub.port_holder(), '')
-        with patch.object(sub, 'port_holder', return_value=''):
-            with self.assertRaisesRegex(RuntimeError, 'outside this container or namespace'):
-                sub.ensure_port_free()
+        with patch.object(Path, 'read_text', read_text), patch.object(Path, 'iterdir', lambda self: iter(())):
+            self.assertEqual(sub.port_holder(7890), '')
+            self.assertIsNone(sub.port_holder(7891))
 
-    def test_restart_checks_the_port_only_when_nothing_runs(self):
-        with patch.object(sub, 'CONFIG', Path('/dev/null')), patch.object(sub, 'ROOT', Path('/dev')), \
-             patch.object(Path, 'is_file', lambda self: str(self) in ('/dev/null', '/dev/proxies.yaml')), \
-             patch.object(sub, 'active', return_value=False), patch.object(sub, 'linspace_log'), \
-             patch.object(sub, 'port_holder', return_value='other (pid 7)'), patch.object(sub, 'control') as control:
-            with self.assertRaisesRegex(RuntimeError, 'already in use by other'):
-                sub.reselect()
-        control.assert_not_called()
+    def test_restart_moves_a_stopped_proxy_off_a_taken_port(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / 'config.yaml'
+            config.write_text('mixed-port: 7890\nallow-lan: false\n')
+            written = []
+            with patch.object(sub, 'CONFIG', config), patch.object(sub, 'ROOT', Path(temporary)), \
+                 patch.object(Path, 'is_file', lambda self: True), patch.object(sub, 'active', return_value=False), \
+                 patch.object(sub, 'port_holder', self.holders({7890: 'clash (pid 7)'})), patch.object(sub, 'linspace_log'), \
+                 patch.object(sub, 'atomic_copy', side_effect=lambda source, target, mode=0o600: written.append(source.read_text())), \
+                 patch.object(sub, 'control', side_effect=RuntimeError('stop here')):
+                with self.assertRaisesRegex(RuntimeError, 'stop here'):
+                    sub.reselect()
+        self.assertEqual(len(written), 1)
+        self.assertIn('mixed-port: 7891', written[0])
 
 if __name__ == '__main__':
     unittest.main()
