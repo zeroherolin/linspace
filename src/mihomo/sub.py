@@ -122,8 +122,8 @@ def owned_ports(pid):
 
 def port_holder():
     """Who listens on 127.0.0.1:PROXY_PORT when the managed process does not: 'name (pid N)',
-    'another process' when /proc does not say, or None when the port is free."""
-    listening = set()
+    the owning account when /proc hides other processes' files, or None when the port is free."""
+    listening, owners = set(), set()
     for protocol in ('tcp', 'tcp6'):
         try:
             rows = Path(f'/proc/net/{protocol}').read_text().splitlines()[1:]
@@ -134,6 +134,7 @@ def port_holder():
             address, port = fields[1].rsplit(':', 1)
             if int(port, 16) == PROXY_PORT and fields[3] == '0A' and address.upper() in ('0100007F', '00000000', '0' * 32):
                 listening.add(f'socket:[{fields[9]}]')
+                owners.add(int(fields[7]))
     if not listening:
         return None
     for proc in Path('/proc').iterdir():
@@ -144,14 +145,22 @@ def port_holder():
                 return f"{(proc / 'comm').read_text().strip()} (pid {proc.name})"
         except OSError:
             continue
-    return 'another process'
+    # Without CAP_SYS_PTRACE (some containers and VPS), root cannot read other users' descriptors;
+    # the socket table still names the account that opened the port.
+    names = []
+    for uid in sorted(owners):
+        try:
+            names.append(pwd.getpwuid(uid).pw_name)
+        except KeyError:
+            names.append(f'uid {uid}')
+    return 'a process of user ' + ', '.join(names)
 
 
 def ensure_port_free():
     holder = port_holder()
     if holder:
         fail(f'127.0.0.1:{PROXY_PORT} is already in use by {holder}. Stop that program, or move it to another port, '
-             'then import again. The current configuration was not changed.')
+             f'then import again; `ss -ltnp "sport = :{PROXY_PORT}"` shows it. The current configuration was not changed.')
 
 
 @functools.lru_cache(maxsize=None)
