@@ -253,7 +253,7 @@ class PortTests(unittest.TestCase):
         with patch.object(sub, 'port_holder', return_value=None):
             sub.ensure_port_free()
 
-    def test_a_hidden_holder_is_named_by_its_account(self):
+    def test_a_holder_outside_this_namespace_is_explained(self):
         # Root without CAP_SYS_PTRACE reads /proc/net but not other users' descriptors.
         tcp = ('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n'
                '   0: 0100007F:1ED2 00000000:0000 0A 00000000:00000000 00:00000000 00000000 65534        0 1005767 1\n')
@@ -267,8 +267,11 @@ class PortTests(unittest.TestCase):
             return real_read(self, *args, **kwargs)
 
         with patch.object(Path, 'read_text', read_text), patch.object(Path, 'iterdir', lambda self: iter(())), \
-             patch.object(sub.pwd, 'getpwuid', return_value=SimpleNamespace(pw_name='nobody')):
-            self.assertEqual(sub.port_holder(), 'a process of user nobody')
+             patch.object(sub, 'linspace_log'):
+            self.assertEqual(sub.port_holder(), '')
+        with patch.object(sub, 'port_holder', return_value=''):
+            with self.assertRaisesRegex(RuntimeError, 'outside this container or namespace'):
+                sub.ensure_port_free()
 
     def test_restart_checks_the_port_only_when_nothing_runs(self):
         with patch.object(sub, 'CONFIG', Path('/dev/null')), patch.object(sub, 'ROOT', Path('/dev')), \
